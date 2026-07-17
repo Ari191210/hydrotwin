@@ -1,12 +1,70 @@
 """HydroTwin configuration.
 
-Everything the demo depends on is set here. Edit this block to retarget
-the basin, resize the grid, or change the storm length.
+Three demo cases are defined in CASES. `python run.py` runs all of them;
+`python run.py <case>` runs one. set_case() switches the active basin —
+all other modules read the module-level values below at call time.
 """
 
-# ---- Basin ------------------------------------------------------------
-BASIN_LAT = 30.11          # Rishikesh, India — the Ganga exiting the Himalaya
-BASIN_LON = 78.29
+# ---- Demo cases --------------------------------------------------------
+CASES = {
+    "rishikesh": {
+        "title": "Rishikesh — Ganga exiting the Himalaya",
+        "lat": 30.11, "lon": 78.29,
+        "pois": [
+            {"name": "District Hospital", "type": "hospital", "row": 38, "col": 44},
+            {"name": "Govt. Senior School", "type": "school", "row": 62, "col": 58},
+            {"name": "NH-7 River Bridge", "type": "road", "row": 30, "col": 50},
+            {"name": "Station Road Junction", "type": "road", "row": 70, "col": 35},
+        ],
+    },
+    "delhi": {
+        "title": "Delhi — Yamuna floodplain",
+        "lat": 28.66, "lon": 77.23,
+        "pois": [
+            {"name": "LNJP Hospital", "type": "hospital", "row": 45, "col": 30},
+            {"name": "Govt. School Kashmere Gate", "type": "school", "row": 58, "col": 42},
+            {"name": "Ring Road (ISBT)", "type": "road", "row": 50, "col": 55},
+            {"name": "Old Iron Bridge Approach", "type": "road", "row": 35, "col": 62},
+        ],
+    },
+    "hue": {
+        "title": "Hue, Vietnam — Perfume River",
+        "lat": 16.46, "lon": 107.59,
+        "pois": [
+            {"name": "Hue Central Hospital", "type": "hospital", "row": 52, "col": 40},
+            {"name": "Quoc Hoc High School", "type": "school", "row": 44, "col": 34},
+            {"name": "Trang Tien Bridge", "type": "road", "row": 48, "col": 52},
+            {"name": "QL1A Highway", "type": "road", "row": 65, "col": 60},
+        ],
+    },
+}
+DEFAULT_CASES = ["rishikesh", "delhi", "hue"]
+
+# ---- Active basin (set_case overwrites these) ---------------------------
+ACTIVE_CASE = "rishikesh"
+CASE_TITLE = CASES["rishikesh"]["title"]
+BASIN_LAT = CASES["rishikesh"]["lat"]
+BASIN_LON = CASES["rishikesh"]["lon"]
+POIS = CASES["rishikesh"]["pois"]
+OUTPUT_DIR = "outputs/rishikesh"
+
+
+def set_case(name):
+    """Point the whole pipeline at one of the demo cases."""
+    global ACTIVE_CASE, CASE_TITLE, BASIN_LAT, BASIN_LON, POIS, OUTPUT_DIR
+    if name not in CASES:
+        raise KeyError(f"unknown case '{name}' — choose from {list(CASES)}")
+    case = CASES[name]
+    ACTIVE_CASE = name
+    CASE_TITLE = case["title"]
+    BASIN_LAT = case["lat"]
+    BASIN_LON = case["lon"]
+    POIS = case["pois"]
+    OUTPUT_DIR = f"outputs/{name}"
+    return case
+
+
+# ---- Grid / storm --------------------------------------------------------
 GRID_ROWS = 100
 GRID_COLS = 100
 SIM_DURATION_HR = 6.0      # simulated storm window
@@ -18,25 +76,14 @@ MANNINGS_N = 0.03
 DT_MAX_S = 30.0            # cap on the adaptive timestep
 TEST_RAIN_MM_HR = 30.0     # Phase-1 constant test rainfall
 
-# ---- Rainfall (Phase 2) -------------------------------------------------
+# ---- Rainfall ------------------------------------------------------------
 MIN_DEMO_RAIN_MM = 30.0    # if the live forecast totals less than this over the
                            # sim window, use the synthetic design storm instead
 RAIN_MULTIPLIER = 1.0      # scale factor applied to whichever series is used
 OPEN_METEO_TIMEOUT_S = 10
 
-# ---- Decisions (Phase 3) ------------------------------------------------
+# ---- Decisions ------------------------------------------------------------
 FLOOD_DEPTH_M = 0.30       # depth that counts as "flooded"
 SEVERE_DEPTH_M = 1.00      # depth that counts as "severe"
 ZONE_DIV = 4               # grid is split into ZONE_DIV x ZONE_DIV named zones
 CLAUDE_MODEL = "claude-sonnet-5"
-
-# Points of interest, in grid coordinates (row 0 = south edge).
-POIS = [
-    {"name": "District Hospital", "type": "hospital", "row": 38, "col": 44},
-    {"name": "Govt. Senior School", "type": "school", "row": 62, "col": 58},
-    {"name": "NH-7 River Bridge", "type": "road", "row": 30, "col": 50},
-    {"name": "Station Road Junction", "type": "road", "row": 70, "col": 35},
-]
-
-# ---- Output --------------------------------------------------------------
-OUTPUT_DIR = "outputs"

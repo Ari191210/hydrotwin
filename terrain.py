@@ -110,23 +110,43 @@ def _parse_aaigrid(text):
 
 
 def _from_aws_terrain_tiles(zoom=12):
+    """Fetch terrarium tiles and crop a window centred EXACTLY on the basin
+    lat/lon (stitching neighbouring tiles when the window crosses a tile
+    edge) so map overlays line up with real basemap tiles."""
     import requests
     from PIL import Image
 
     n = 2 ** zoom
     lat_r = math.radians(config.BASIN_LAT)
-    xt = int((config.BASIN_LON + 180.0) / 360.0 * n)
-    yt = int((1.0 - math.log(math.tan(lat_r) + 1.0 / math.cos(lat_r)) / math.pi)
-             / 2.0 * n)
-    url = f"https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{zoom}/{xt}/{yt}.png"
-    r = requests.get(url, timeout=(5, 20))
-    r.raise_for_status()
-    rgb = np.asarray(Image.open(io.BytesIO(r.content)).convert("RGB"), dtype=float)
-    elev = rgb[..., 0] * 256.0 + rgb[..., 1] + rgb[..., 2] / 256.0 - 32768.0
-    elev = _center_crop(elev, config.GRID_ROWS, config.GRID_COLS)
-    elev = np.flipud(elev)  # tile row 0 = north
+    rows, cols = config.GRID_ROWS, config.GRID_COLS
+
+    # global pixel coordinates of the basin centre at this zoom
+    px = (config.BASIN_LON + 180.0) / 360.0 * n * 256.0
+    py = (1.0 - math.log(math.tan(lat_r) + 1.0 / math.cos(lat_r)) / math.pi) \
+        / 2.0 * n * 256.0
+    x0, y0 = int(px - cols / 2), int(py - rows / 2)
+
+    tx0, tx1 = x0 // 256, (x0 + cols - 1) // 256
+    ty0, ty1 = y0 // 256, (y0 + rows - 1) // 256
+    mosaic = np.empty(((ty1 - ty0 + 1) * 256, (tx1 - tx0 + 1) * 256))
+    for ty in range(ty0, ty1 + 1):
+        for tx in range(tx0, tx1 + 1):
+            url = (f"https://s3.amazonaws.com/elevation-tiles-prod/terrarium/"
+                   f"{zoom}/{tx}/{ty}.png")
+            r = requests.get(url, timeout=(5, 20))
+            r.raise_for_status()
+            rgb = np.asarray(Image.open(io.BytesIO(r.content)).convert("RGB"),
+                             dtype=float)
+            tile = rgb[..., 0] * 256.0 + rgb[..., 1] + rgb[..., 2] / 256.0 \
+                - 32768.0
+            mosaic[(ty - ty0) * 256:(ty - ty0 + 1) * 256,
+                   (tx - tx0) * 256:(tx - tx0 + 1) * 256] = tile
+
+    elev = mosaic[y0 - ty0 * 256:y0 - ty0 * 256 + rows,
+                  x0 - tx0 * 256:x0 - tx0 * 256 + cols]
+    elev = np.flipud(elev)  # tile row 0 = north; Landlab wants row 0 = south
     cell = 156_543.03392 * math.cos(lat_r) / n  # metres per pixel at this zoom
-    return elev, cell
+    return elev.copy(), cell
 
 
 def _center_crop(a, rows, cols):

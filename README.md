@@ -8,9 +8,17 @@ plus an animation.
 ## Run
 
 ```bash
-.venv/Scripts/python run.py        # Windows
-# or: python run.py  (with the deps below installed)
+.venv/Scripts/python run.py            # runs all 3 demo cases (~30 s each)
+.venv/Scripts/python run.py delhi      # one case: rishikesh | delhi | hue
 ```
+
+The three cases (defined in `config.py` CASES):
+
+| Case | Basin | Character |
+|---|---|---|
+| `rishikesh` | Ganga exiting the Himalaya (30.11, 78.29) | steep mountain valley |
+| `delhi` | Yamuna floodplain (28.66, 77.23) | flat urban floodplain |
+| `hue` | Perfume River, Vietnam (16.46, 107.59) | coastal monsoon basin |
 
 Optional env vars:
 
@@ -20,10 +28,11 @@ ANTHROPIC_API_KEY=sk-ant-...   # enables the Claude decision layer
 OPENTOPO_API_KEY=...           # optional extra DEM source (OpenTopography)
 ```
 
-## Outputs (written to `outputs/`)
+## Outputs (written to `outputs/<case>/`)
 
 | File | What |
 |---|---|
+| `flood_3d.html` | **The demo centerpiece** — rotatable/zoomable 3D terrain (three.js) with the flood animating over it, evacuation-zone texture toggle, POI pins with hover tooltips, rainfall chart, alert + decisions panel. Fully self-contained, opens offline. |
 | `flood_map.html` | Interactive Leaflet map with a time slider of flood spread, evacuation zones, POIs, and the public alert. Opens offline. |
 | `flood.gif` / `flood.mp4` | Animation of flood depth over a terrain hillshade (the GIF is the guaranteed fallback). |
 | `decisions.json` | Evacuation zones, safe routes, public alert + zone stats. |
@@ -62,5 +71,6 @@ py -3.13 -m venv .venv
 
 ## Module map
 
-`config.py` (all knobs) → `terrain.py` → `rainfall.py` → `simulate.py` →
-`decide.py` → `visualize.py`, orchestrated by `run.py`.
+`config.py` (all knobs + case presets) → `terrain.py` → `rainfall.py` →
+`simulate.py` → `decide.py` → `viewer3d.py` + `visualize.py`,
+orchestrated by `run.py`.
