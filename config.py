@@ -79,7 +79,7 @@ TEST_RAIN_MM_HR = 30.0     # Phase-1 constant test rainfall
 # ---- Rainfall ------------------------------------------------------------
 MIN_DEMO_RAIN_MM = 30.0    # if the live forecast totals less than this over the
                            # sim window, use the synthetic design storm instead
-RAIN_MULTIPLIER = 1.0      # scale factor applied to whichever series is used
+RAIN_MULTIPLIER = 2.0      # scale factor applied to whichever series is used
 OPEN_METEO_TIMEOUT_S = 10
 
 # ---- Decisions ------------------------------------------------------------
