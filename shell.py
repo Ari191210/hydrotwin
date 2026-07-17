@@ -137,13 +137,11 @@ html,body{height:100%;overflow:hidden;color:var(--text);font:14px/1.5 var(--fd);
   </div>
   <div id="live">
     <span id="livedot"></span>
-    <div><div class="ld">UTC now</div><b id="clock">--:--:--</b></div>
+    <div><div class="ld">live clock (UTC)</div><b id="clock">--:--:--</b></div>
     <div class="sep"></div>
     <div><div class="ld">rain now</div><b id="crain">--</b></div>
     <div class="sep"></div>
-    <div><div class="ld">river</div><b id="criver">--</b></div>
-    <div class="sep"></div>
-    <div><div class="ld">forecast age</div><b id="cage">--</b></div>
+    <div><div class="ld">river discharge</div><b id="criver">--</b></div>
   </div>
 </div>
 
@@ -166,26 +164,27 @@ html,body{height:100%;overflow:hidden;color:var(--text);font:14px/1.5 var(--fd);
 
 <script>
 var API = "";
-var curLoc = null, issuedAt = null, pollTimer = null, clockTimer = null;
+var curLoc = null, pollTimer = null, clockTimer = null;
+var condInFlight = false;      // guard: never let polls pile up
+var POLL_MS = 10000;           // data cadence — comfortably > fetch time
 
-// ---------- live clock + conditions ----------
+// ---------- live clock (local, genuinely per-second) ----------
 function pad(n){return ("0"+n).slice(-2);}
 function tickClock(){
   var d=new Date();
   document.getElementById("clock").textContent =
     pad(d.getUTCHours())+":"+pad(d.getUTCMinutes())+":"+pad(d.getUTCSeconds());
-  if(issuedAt){
-    var age=Math.max(0,(Date.now()-issuedAt)/1000);
-    var m=Math.floor(age/60), s=Math.floor(age%60);
-    document.getElementById("cage").textContent =
-      (m>0?m+"m ":"")+s+"s ago";
-  }
 }
 clockTimer=setInterval(tickClock,1000); tickClock();
 
+// ---------- live conditions (polled, in-flight guarded) ----------
 function pollConditions(){
-  if(!curLoc) return;
-  fetch(API+"/api/conditions?lat="+curLoc.lat+"&lon="+curLoc.lon)
+  if(!curLoc || condInFlight) return;   // skip if the last fetch isn't back
+  condInFlight = true;
+  var ctrl = ("AbortController" in window) ? new AbortController() : null;
+  var killer = ctrl ? setTimeout(function(){ctrl.abort();}, POLL_MS-1000):null;
+  fetch(API+"/api/conditions?lat="+curLoc.lat+"&lon="+curLoc.lon,
+    ctrl?{signal:ctrl.signal}:{})
     .then(function(r){return r.json();})
     .then(function(c){
       var dot=document.getElementById("livedot");
@@ -197,7 +196,8 @@ function pollConditions(){
           :Math.round(c.discharge_m3s).toLocaleString()+" m³/s");
       dot.className = (rain==null&&c.discharge_m3s==null)?"stale":"";
     })
-    .catch(function(){document.getElementById("livedot").className="stale";});
+    .catch(function(){document.getElementById("livedot").className="stale";})
+    .then(function(){ condInFlight=false; if(killer)clearTimeout(killer); });
 }
 
 // ---------- search ----------
@@ -286,9 +286,9 @@ function loadResult(jid,lat,lon,title,summary){
       };
       frame.srcdoc=j.html;
       curLoc={lat:lat,lon:lon};
-      issuedAt=summary&&summary.issued_at?Date.parse(summary.issued_at):Date.now();
+      condInFlight=false;
       if(pollTimer)clearInterval(pollTimer);
-      pollConditions(); pollTimer=setInterval(pollConditions,8000);
+      pollConditions(); pollTimer=setInterval(pollConditions,POLL_MS);
     }).catch(function(e){showErr(String(e));});
 }
 function setProg(pct,stage){

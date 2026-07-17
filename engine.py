@@ -206,10 +206,22 @@ def _fetch_pois(lat, lon, elevation, cell_size):
     ]
 
 
+_COND_CACHE = {}          # key -> (timestamp, payload)
+_COND_TTL = 20.0          # seconds; upstream data changes far slower than this
+
+
 def current_conditions(lat, lon):
-    """Lightweight live readout for per-second polling — current observed
-    rainfall + latest river discharge + server time. Never blocks long,
-    never raises."""
+    """Live conditions readout (current rainfall + river discharge). Cached
+    for a few seconds so frequent UI polls return instantly and never
+    outrun the upstream fetch — the fix for UI/data speed mismatch. Never
+    blocks long, never raises."""
+    key = cache_key(lat, lon)
+    hit = _COND_CACHE.get(key)
+    if hit and (time.time() - hit[0]) < _COND_TTL:
+        fresh = dict(hit[1])
+        fresh["server_time"] = datetime.now(timezone.utc).isoformat()
+        return fresh
+
     out = {"server_time": datetime.now(timezone.utc).isoformat(),
            "lat": lat, "lon": lon, "rain_now_mm_hr": None,
            "weather_time": None, "discharge_m3s": None,
@@ -230,15 +242,11 @@ def current_conditions(lat, lon):
     except Exception:
         pass
     try:
-        prev_lat, prev_lon = config.BASIN_LAT, config.BASIN_LON
-        config.BASIN_LAT, config.BASIN_LON = lat, lon
-        try:
-            d = flooddata._fetch_live()
-        finally:
-            config.BASIN_LAT, config.BASIN_LON = prev_lat, prev_lon
+        d = flooddata._fetch_live(lat, lon)   # explicit coords, no global race
         if d:
             out["discharge_m3s"] = d["today"]
             out["discharge_pct"] = d["pct_of_median"]
     except Exception:
         pass
+    _COND_CACHE[key] = (time.time(), out)
     return out

@@ -43,16 +43,19 @@ def get_river_discharge():
     return None
 
 
-def _fetch_live():
+def _fetch_live(lat=None, lon=None):
     """GloFAS cells are ~5 km; the river channel may sit one cell over.
     Sample a 3x3 neighbourhood in one request and keep the strongest cell —
-    that's the river."""
+    that's the river. lat/lon default to the active basin, but can be passed
+    explicitly (so callers needn't mutate global config)."""
     try:
         import requests
 
+        lat = config.BASIN_LAT if lat is None else lat
+        lon = config.BASIN_LON if lon is None else lon
         offs = (-0.05, 0.0, 0.05)
-        lats = [config.BASIN_LAT + a for a in offs for _ in offs]
-        lons = [config.BASIN_LON + b for _ in offs for b in offs]
+        lats = [lat + a for a in offs for _ in offs]
+        lons = [lon + b for _ in offs for b in offs]
         r = requests.get(
             "https://flood-api.open-meteo.com/v1/flood",
             params={"latitude": ",".join(f"{v:.4f}" for v in lats),

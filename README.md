@@ -1,16 +1,35 @@
-# HydroTwin — physics-informed flood prediction demo
+# HydroTwin — physics-informed flood prediction
 
 Simulates a flood over real terrain with 2D shallow-water physics
-(Landlab `OverlandFlow`), drives it with a live rainfall forecast, turns the
-result into evacuation decisions with Claude, and renders an interactive map
-plus an animation.
+(Landlab `OverlandFlow`), driven by live rainfall and live river-discharge
+data, turns the result into evacuation decisions with Claude, and renders it
+in an interactive 3D viewer — for **any location on Earth**.
 
-## Run
+## Run — live server (any location)
+
+```bash
+.venv/Scripts/python server.py     # then open http://localhost:8000
+```
+
+Type any city or `lat,lon`. The server geocodes it, fetches global terrain +
+live rainfall + live GloFAS river discharge, runs the physics, and returns
+the 3D flood forecast for that exact place — with a live-conditions strip
+(UTC clock, current rainfall, river discharge, forecast age) updating to the
+second. First run of a location takes ~20-25 s (staged progress shown);
+results are cached by coordinate.
+
+Needs internet (for the live data + global terrain). The only optional key is
+`ANTHROPIC_API_KEY`; geocoding, terrain, rainfall, and discharge are keyless.
+
+## Run — static build (offline, the 3 curated cases)
 
 ```bash
 .venv/Scripts/python run.py            # runs all 3 demo cases (~30 s each)
 .venv/Scripts/python run.py delhi      # one case: rishikesh | delhi | hue
 ```
+
+Produces self-contained `outputs/<case>/flood_3d.html` files that open with
+no internet and no server — the guaranteed-to-work fallback for the demo.
 
 The three cases (defined in `config.py` CASES):
 
