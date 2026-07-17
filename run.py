@@ -34,8 +34,11 @@ def run_case(name):
     import viewer3d
     import visualize
 
+    import flooddata
+
     elevation, cell_size, terrain_source = terrain.load_terrain()
     _, base_series, rain_source = rainfall.get_rainfall()
+    discharge = flooddata.get_river_discharge()
 
     # One physics run per what-if storm scenario; the RAIN_MULTIPLIER one
     # is the default shown everywhere (and the only one that may call Claude).
@@ -69,7 +72,8 @@ def run_case(name):
     viewer_path = None
     try:
         viewer_path = viewer3d.make_3d_viewer(
-            scenarios, elevation, cell_size, rain_source, terrain_source)
+            scenarios, elevation, cell_size, rain_source, terrain_source,
+            discharge=discharge)
     except Exception as exc:
         print(f"[viewer3d] 3D viewer failed ({type(exc).__name__}: {exc}) "
               f"— 2D map + animation still produced")

@@ -48,14 +48,24 @@ with **no internet and no API keys**:
 2. **Rainfall** — Open-Meteo hourly forecast (no key), wettest window in the
    next 48 h; on failure *or* a too-dry forecast (< `MIN_DEMO_RAIN_MM`):
    built-in design storm (printed clearly either way).
-3. **Physics** — Landlab `OverlandFlow` (de Almeida et al. explicit
+3. **Live flood data** — Open-Meteo Flood API (Copernicus **GloFAS** river
+   discharge forecast, no key). Samples a 3×3 cell neighbourhood and keeps
+   the strongest cell (the river channel). Last good response is cached per
+   case in `assets/glofas_cache.json`, so the discharge panel shows
+   last-known live data (timestamped) with no internet. Omitted only if no
+   river cell is near the basin and nothing is cached.
+4. **Physics** — Landlab `OverlandFlow` (de Almeida et al. explicit
    shallow-water scheme), adaptive timestep. No ML, no training.
-4. **Decisions** — `claude-sonnet-5` returns strict JSON (evacuation zones,
+5. **Decisions** — `claude-sonnet-5` returns strict JSON (evacuation zones,
    safe routes, public alert); on missing key / API error / bad JSON:
    rule-based planner.
-5. **Viz** — Folium map with all Leaflet assets inlined (cached in
+6. **Viz** — Folium map with all Leaflet assets inlined (cached in
    `assets/web_cache/`) so the HTML opens offline; matplotlib GIF always
    works, MP4 via bundled ffmpeg.
+
+**API keys:** the only key the project ever uses is `ANTHROPIC_API_KEY`
+(optional — enables the Claude decision layer). Terrain, rainfall, and live
+river discharge are all keyless.
 
 ## Configuration
 

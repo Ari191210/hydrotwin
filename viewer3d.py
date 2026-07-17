@@ -30,7 +30,7 @@ PRIORITY_TINT = {"immediate": (239, 83, 80), "high": (255, 152, 0),
 
 
 def make_3d_viewer(scenarios, elevation, cell_size, rain_source,
-                   terrain_source, path=None):
+                   terrain_source, discharge=None, path=None):
     """scenarios: list of dicts from run.py (mult, times, depths,
     rain_series, decisions, decision_source, is_default)."""
     path = path or os.path.join(config.OUTPUT_DIR, "flood_3d.html")
@@ -81,6 +81,7 @@ def make_3d_viewer(scenarios, elevation, cell_size, rain_source,
         "popDensity": config.POP_DENSITY_KM2,
         "floodDepthM": config.FLOOD_DEPTH_M,
         "durationHr": config.SIM_DURATION_HR,
+        "discharge": discharge,
         "scenarios": scen_payload,
     }
 
@@ -222,8 +223,23 @@ __FONTS_CSS__
 
   .panel { position: absolute; background: var(--panel);
     border: 1px solid var(--line); border-radius: 12px;
-    backdrop-filter: blur(10px); box-shadow: 0 10px 36px rgba(0,0,0,.5); }
+    backdrop-filter: blur(22px) saturate(160%);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.055),
+      0 10px 36px rgba(0,0,0,.5); }
   .mono { font-family: var(--fm); }
+  button { touch-action: manipulation; }
+  #tabs a:active, #storm button:active, #vmode button:active,
+  #speed:active { transform: scale(.96); }
+  #present:active { transform: scale(.985); }
+  #playbtn:active { transform: scale(.92); }
+  #tabs a, #storm button, #vmode button, #present, #playbtn, #speed {
+    transition: transform .1s ease-out, background .15s, color .15s,
+      border-color .15s; }
+  .zrow, .prow { transition: filter .15s ease-out; }
+  .zrow:hover, .prow:hover { filter: brightness(1.35); }
+  @media (prefers-reduced-transparency: reduce) {
+    .panel { background: #0a0f16; backdrop-filter: none; }
+  }
 
   a:focus-visible, button:focus-visible, input:focus-visible,
   select:focus-visible { outline: 2px solid var(--accent);
@@ -317,6 +333,30 @@ __FONTS_CSS__
   #hydrolab { display: flex; justify-content: space-between;
     font-family: var(--fm); font-size: 9px; color: var(--dimmer);
     letter-spacing: 1px; margin-top: 4px; text-transform: uppercase; }
+
+  #rivernow { display: flex; align-items: baseline; gap: 10px;
+    margin-bottom: 8px; }
+  #rivernow b { font-family: var(--fm); font-size: 21px; font-weight: 600;
+    font-variant-numeric: tabular-nums; letter-spacing: -.5px;
+    color: var(--accent); }
+  #rivernow b i { font-style: normal; font-size: 10.5px; font-weight: 400;
+    color: var(--dim); margin-left: 3px; }
+  #riverchip { font-family: var(--fm); font-size: 10px; font-weight: 600;
+    letter-spacing: .8px; padding: 2.5px 9px; border-radius: 20px; }
+  #riverchip.abnormal { color: var(--orange);
+    background: rgba(255,171,64,.14); }
+  #riverchip.normal { color: var(--safe); background: rgba(76,217,123,.1); }
+  #riverbars { display: flex; align-items: flex-end; gap: 4px; height: 42px;
+    margin-bottom: 6px; }
+  #riverbars div { flex: 1; border-radius: 2.5px 2.5px 0 0; min-height: 4px;
+    background: linear-gradient(180deg, var(--accent2), #26325e);
+    position: relative; }
+  #riverbars div.today { background: linear-gradient(180deg, var(--accent),
+    #14586d); }
+  #riverbars div i { position: absolute; bottom: -14px; width: 100%;
+    text-align: center; font-style: normal; font-family: var(--fm);
+    font-size: 8px; color: var(--dimmer); }
+  #riverfoot { margin-top: 14px; }
 
   .zrow { display: flex; align-items: baseline; gap: 9px; padding: 7px 10px;
     border-radius: 8px; margin-bottom: 5px; background: rgba(255,255,255,.02);
@@ -499,6 +539,14 @@ __FONTS_CSS__
   <h2>Hydrograph</h2>
   <div id="hydro"><canvas id="hydrocv"></canvas>
     <div id="hydrolab"><span>flooded area</span><span>volume</span></div>
+  </div>
+  <div id="riversec" style="display:none">
+    <h2 id="riverhead">River discharge</h2>
+    <div id="river">
+      <div id="rivernow"><b id="riverval"></b><span id="riverchip"></span></div>
+      <div id="riverbars"></div>
+      <div id="riverfoot" class="src"></div>
+    </div>
   </div>
   <h2>Evacuation priorities</h2><div id="zones"></div>
   <h2>Points of interest</h2><div id="pois"></div>
@@ -793,9 +841,36 @@ var rainrow = document.getElementById("rainrow");
 var rainBars = [];
 var hydroCv = document.getElementById("hydrocv");
 
+// ---- fluid motion: critically damped springs (Apple-style)
+function Spring(x) { this.x = x; this.v = 0; this.target = x;
+  this.done = true; }
+Spring.prototype.step = function (dt, response) {
+  if (this.done) return this.x;
+  var w = 2 * Math.PI / (response || .4);
+  var a = -w * w * (this.x - this.target) - 2 * w * this.v;
+  this.v += a * dt; this.x += this.v * dt;
+  if (Math.abs(this.x - this.target) < 5e-4 && Math.abs(this.v) < 5e-4) {
+    this.x = this.target; this.v = 0; this.done = true;
+  }
+  return this.x;
+};
+Spring.prototype.to = function (t) { this.target = t; this.done = false; };
+Spring.prototype.jump = function (t) { this.x = t; this.target = t;
+  this.v = 0; this.done = true; };
+
 // ---- scenario state
 var cur = -1, SC = null, DEPTH = null, vmaxM = 1;
 var viewMode = "terrain";   // terrain | zones | arrival
+var frameF = 0;             // continuous playhead (fractional frames)
+var playing = false;
+var PLAY_RATE = 2.2;        // frames per second at 1x speed
+var seekSpring = new Spring(0);
+var morphS = new Spring(1); // 0..1 blend from previous scenario's water
+var morphFrom = new Float32Array(N);
+var lastDm = new Float32Array(N);
+var vmaxFrom = 1;
+var shown = { f: -1, hour: -1, max: 0, areaKm2: 0, volMm3: 0 };
+var waterDirty = true;
 
 function decodeScenario(sc) {
   if (!sc._depth) sc._depth = new Uint16Array(b64Bytes(sc.depthsB64).buffer);
@@ -857,7 +932,12 @@ function applyViewMode() {
 
 function setScenario(i) {
   if (i === cur) return;
-  var prev = SC ? SC._stats[+slider.value] : null;
+  var hadPrev = SC !== null;
+  if (hadPrev && !reduceMotion) {
+    morphFrom.set(lastDm);        // melt from the water you're looking at
+    vmaxFrom = vmaxM;
+    morphS.x = 0; morphS.v = 0; morphS.to(1);
+  }
   cur = i; SC = P.scenarios[i];
   decodeScenario(SC);
   DEPTH = SC._depth; vmaxM = SC._vmax / 100;
@@ -874,68 +954,99 @@ function setScenario(i) {
   renderMarks(); buildRoutes(SC); applyViewMode();
   poiMeshes.forEach(function (m, j) { m.userData = SC.pois[j]; });
   setFrame(SC.timesS.length - 1);
-  if (prev) animateStats(prev, SC._stats[+slider.value]);
 }
 
-// smooth number transition between scenarios
-var statAnim = null;
-function animateStats(from, to) {
-  if (reduceMotion) return;
-  statAnim = { from: from, to: to, t0: performance.now() };
-}
-function tickStats(now) {
-  if (!statAnim) return;
-  var q = Math.min((now - statAnim.t0) / 350, 1);
-  q = 1 - Math.pow(1 - q, 3);
-  var a = statAnim.from, b = statAnim.to;
-  stMax.firstChild.textContent =
-    (a.max + (b.max - a.max) * q).toFixed(2);
-  stArea.firstChild.textContent =
-    (a.areaKm2 + (b.areaKm2 - a.areaKm2) * q).toFixed(2);
-  stVol.firstChild.textContent =
-    (a.volMm3 + (b.volMm3 - a.volMm3) * q).toFixed(2);
-  stPeople.textContent = "~" + Math.round(
-    (a.areaKm2 + (b.areaKm2 - a.areaKm2) * q) * P.popDensity)
-    .toLocaleString("en");
-  if (q >= 1) statAnim = null;
-}
-
+// jump the playhead (scrub, arrows, presentation). Cancels any glide.
 function setFrame(f) {
-  f = Math.max(0, Math.min(SC.timesS.length - 1, f));
-  var off = f * N;
+  seekSpring.done = true;
+  frameF = Math.max(0, Math.min(SC.timesS.length - 1, f));
+  waterDirty = true;
+}
+
+// glide the playhead there on a spring (event marks, hydrograph clicks)
+function seekTo(f) {
+  playing = false; playBtn.innerHTML = "&#9654;";
+  if (reduceMotion) { setFrame(f); return; }
+  seekSpring.x = frameF; seekSpring.v = 0; seekSpring.to(f);
+}
+
+function statAt(f) {  // stats interpolated between sim snapshots
+  var i0 = Math.floor(f), i1 = Math.min(i0 + 1, SC._stats.length - 1);
+  var t = f - i0, a = SC._stats[i0], b = SC._stats[i1];
+  return { max: a.max + (b.max - a.max) * t,
+    areaKm2: a.areaKm2 + (b.areaKm2 - a.areaKm2) * t,
+    volMm3: a.volMm3 + (b.volMm3 - a.volMm3) * t };
+}
+
+// per-rAF UI sync — only touches the DOM when a shown value changed
+function syncUI() {
+  if (Math.abs(frameF - shown.f) < .005 && morphS.done) return;
+  shown.f = frameF;
+  var n = SC.timesS.length;
+  var i0 = Math.floor(frameF), i1 = Math.min(i0 + 1, n - 1);
+  var tf = frameF - i0;
+  var tS = SC.timesS[i0] + (SC.timesS[i1] - SC.timesS[i0]) * tf;
+  var hrs = tS / 3600;
+  tlabel.textContent = "T+" + Math.floor(hrs) + ":" +
+    ("0" + Math.floor(hrs % 1 * 60)).slice(-2);
+  if (+slider.value !== Math.round(frameF))
+    slider.value = Math.round(frameF);
+
+  var mq = morphS.x, s = statAt(frameF);
+  if (mq < 1) {
+    s = { max: shown.morphMax + (s.max - shown.morphMax) * mq,
+      areaKm2: shown.morphArea + (s.areaKm2 - shown.morphArea) * mq,
+      volMm3: shown.morphVol + (s.volMm3 - shown.morphVol) * mq };
+  } else { shown.morphMax = s.max; shown.morphArea = s.areaKm2;
+    shown.morphVol = s.volMm3; }
+  stMax.firstChild.textContent = s.max.toFixed(2);
+  stArea.firstChild.textContent = s.areaKm2.toFixed(2);
+  stVol.firstChild.textContent = s.volMm3.toFixed(2);
+  stPeople.textContent = "~" +
+    Math.round(s.areaKm2 * P.popDensity).toLocaleString("en");
+
+  var hour = Math.floor(hrs);
+  if (hour !== shown.hour) {
+    shown.hour = hour;
+    rainBars.forEach(function (b, h) { b.className = h < hrs ? "wet" : ""; });
+  }
+  var rainMax = Math.max.apply(null, SC.rain.concat([1]));
+  rainLevel = hrs >= SC.rain.length ? 0
+    : SC.rain[Math.min(hour, SC.rain.length - 1)] / rainMax;
+  drawHydro(frameF);
+}
+
+// compose the water surface: sub-frame interpolation + scenario morph
+// + shimmer, in one pass over the grid
+function updateWater(nowMs) {
+  var n = SC.timesS.length;
+  var i0 = Math.floor(frameF), i1 = Math.min(i0 + 1, n - 1);
+  var tf = frameF - i0, off0 = i0 * N, off1 = i1 * N;
+  var mq = morphS.x;
+  var vEff = mq < 1 ? vmaxFrom + (vmaxM - vmaxFrom) * mq : vmaxM;
+  var shimmerOn = !reduceMotion && water.visible;
+  var st = nowMs * .0022;
   for (var i = 0; i < N; i++) {
-    var dm = DEPTH[off + i] / 100;
+    var dm = (DEPTH[off0 + i] * (1 - tf) + DEPTH[off1 + i] * tf) / 100;
+    if (mq < 1) dm = morphFrom[i] + (dm - morphFrom[i]) * mq;
+    lastDm[i] = dm;
     var ty = yOf(ELEV[i] - P.elevMin);
     if (dm >= .02) {
-      wBase[i] = ty + yOf(dm) + .04; wWet[i] = 1;
-      var t = Math.min(dm / vmaxM * 1.5, 1);
+      wWet[i] = 1;
+      var z = ty + yOf(dm) + .04;
+      wpos.setZ(i, shimmerOn ? z + Math.sin(st + i * .53) * .05 : z);
+      var t = Math.min(dm / vEff * 1.5, 1);
       wcol.setXYZ(i, .62 - .55 * t, .83 - .58 * t, 1 - .5 * t);
     } else {
-      wBase[i] = ty - 2.5; wWet[i] = 0;
+      wWet[i] = 0;
+      wpos.setZ(i, ty - 2.5);
       wcol.setXYZ(i, .3, .55, .9);
     }
-    wpos.setZ(i, wBase[i]);
   }
   wpos.needsUpdate = true; wcol.needsUpdate = true;
-  waterGeo.computeVertexNormals();
-
-  slider.value = f;
-  var hrs = SC.timesS[f] / 3600;
-  tlabel.textContent = "T+" + Math.floor(hrs) + ":" +
-    ("0" + Math.round(hrs % 1 * 60)).slice(-2);
-  if (!statAnim) {
-    var s = SC._stats[f];
-    stMax.firstChild.textContent = s.max.toFixed(2);
-    stArea.firstChild.textContent = s.areaKm2.toFixed(2);
-    stVol.firstChild.textContent = s.volMm3.toFixed(2);
-    stPeople.textContent = "~" +
-      Math.round(s.areaKm2 * P.popDensity).toLocaleString("en");
-  }
-  rainBars.forEach(function (b, h) { b.className = h < hrs ? "wet" : ""; });
-  var hourIdx = Math.min(Math.floor(hrs), SC.rain.length - 1);
-  var rainMax = Math.max.apply(null, SC.rain.concat([1]));
-  rainLevel = hrs >= SC.rain.length ? 0 : SC.rain[hourIdx] / rainMax;
-  drawHydro(f);
+  if (++shimmerTick % 3 === 0 || waterDirty)
+    waterGeo.computeVertexNormals();
+  waterDirty = false;
 }
 
 // ---- hydrograph
@@ -974,14 +1085,14 @@ function drawHydro(f) {
   g.beginPath(); g.moveTo(X(f), pad); g.lineTo(X(f), h - pad);
   g.strokeStyle = "rgba(230,237,246,.55)"; g.lineWidth = 1; g.stroke();
 }
-function hydroSeek(e) {
+function hydroFrame(e) {
   var r = hydroCv.getBoundingClientRect();
-  var q = (e.clientX - r.left) / r.width;
-  setFrame(Math.round(q * (SC.timesS.length - 1)));
+  var q = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+  return q * (SC.timesS.length - 1);
 }
-hydroCv.addEventListener("click", hydroSeek);
+hydroCv.addEventListener("click", function (e) { seekTo(hydroFrame(e)); });
 hydroCv.addEventListener("mousemove", function (e) {
-  if (e.buttons === 1) hydroSeek(e);
+  if (e.buttons === 1) setFrame(hydroFrame(e));   // 1:1 while dragging
 });
 
 // ---- panel renderers
@@ -1057,7 +1168,7 @@ function renderMarks() {
     d.className = "mark" + (e.poi ? " poi" : "");
     d.style.left = (e.f / n * 100) + "%";
     d.title = e.label + " (T+" + (SC.timesS[e.f] / 3600).toFixed(1) + "h)";
-    d.addEventListener("click", function () { setFrame(e.f); });
+    d.addEventListener("click", function () { seekTo(e.f); });
     marksEl.appendChild(d);
   });
 }
@@ -1107,27 +1218,22 @@ document.getElementById("sitrep").addEventListener("click", function () {
   URL.revokeObjectURL(a.href);
 });
 
-// ---- playback
-var timer = null;
-function stopPlay() { clearInterval(timer); timer = null;
-  playBtn.innerHTML = "&#9654;"; }
+// ---- playback (rAF-driven, continuous)
+function stopPlay() { playing = false; playBtn.innerHTML = "&#9654;"; }
 function togglePlay() {
-  if (timer) { stopPlay(); return; }
+  seekSpring.done = true;
+  if (playing) { stopPlay(); return; }
+  if (frameF >= SC.timesS.length - 1.01) frameF = 0;  // replay from start
+  playing = true;
   playBtn.innerHTML = "&#10074;&#10074;";
-  timer = setInterval(function () {
-    setFrame((+slider.value + 1) % SC.timesS.length);
-  }, 420 / +speedSel.value);
 }
 playBtn.addEventListener("click", togglePlay);
-speedSel.addEventListener("change", function () {
-  if (timer) { stopPlay(); togglePlay(); }
-});
 slider.addEventListener("input", function () { setFrame(+slider.value); });
 addEventListener("keydown", function (e) {
   if (present.running) { endPresentation(); return; }
   if (e.code === "Space") { e.preventDefault(); togglePlay(); }
-  if (e.code === "ArrowRight") setFrame(+slider.value + 1);
-  if (e.code === "ArrowLeft") setFrame(+slider.value - 1);
+  if (e.code === "ArrowRight") setFrame(Math.round(frameF) + 1);
+  if (e.code === "ArrowLeft") setFrame(Math.round(frameF) - 1);
 });
 
 // ---- view options
@@ -1153,6 +1259,38 @@ document.getElementById("cbSpin").addEventListener("change", function (e) {
 document.getElementById("rgOpacity").addEventListener("input", function (e) {
   waterMat.opacity = +e.target.value / 100;
 });
+
+// ---- live river discharge (GloFAS)
+if (P.discharge) {
+  var D = P.discharge;
+  document.getElementById("riversec").style.display = "";
+  document.getElementById("riverhead").textContent =
+    "River discharge — GloFAS " + (D.live ? "live" : "cached");
+  document.getElementById("riverval").innerHTML =
+    Math.round(D.today).toLocaleString("en") + "<i>m&sup3;/s</i>";
+  var chip = document.getElementById("riverchip");
+  var pct = D.pct_of_median;
+  chip.textContent = (pct >= 0 ? "+" : "") + pct.toFixed(0) +
+    "% vs seasonal median";
+  chip.className = Math.abs(pct) > 15 ? "abnormal" : "normal";
+  var barsEl = document.getElementById("riverbars");
+  var dmax = Math.max.apply(null, D.discharge.concat([1]));
+  D.discharge.forEach(function (v, i) {
+    var b = document.createElement("div");
+    b.style.height = Math.max(v / dmax * 100, 8) + "%";
+    if (i === 0) b.className = "today";
+    b.title = D.days[i] + ": " + Math.round(v).toLocaleString("en") +
+      " m³/s (median " + Math.round(D.median[i]).toLocaleString("en") + ")";
+    b.innerHTML = "<i>" + D.days[i].slice(8) + "</i>";
+    barsEl.appendChild(b);
+  });
+  document.getElementById("riverfoot").innerHTML =
+    "<em>source</em><b>Copernicus GloFAS via Open-Meteo Flood API" +
+    (D.live ? "" : " — cached " + D.fetched_at.slice(0, 10)) +
+    ", 7-day forecast</b>";
+  bootSay("GloFAS river discharge " + (D.live ? "linked (live)"
+    : "loaded (cached)"));
+}
 
 // ---- storm scenario control
 var stormEl = document.getElementById("storm");
@@ -1224,7 +1362,7 @@ function tickPresentation(now) {
     controls.target.lerpVectors(pres.tgt0, center, q);
   } else if (T < 32) {
     var q2 = (T - 4) / 28;
-    setFrame(Math.round(q2 * nF));
+    setFrame(q2 * nF);   // continuous playhead — no frame stepping
     camera.position.copy(sph(q2 * Math.PI * 1.5, SIZE * (1.15 - .45 * q2),
       SIZE * (.6 - .22 * q2)));
     controls.target.copy(center);
@@ -1279,6 +1417,22 @@ addEventListener("resize", function () {
   renderer.setSize(innerWidth, innerHeight);
 });
 
+// double-click terrain: glide the camera's focus there (interruptible)
+var focusS = { x: new Spring(0), y: new Spring(0), z: new Spring(0),
+  on: false };
+renderer.domElement.addEventListener("dblclick", function (e) {
+  mouse.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+  ray.setFromCamera(mouse, camera);
+  var hit = ray.intersectObject(terrain)[0];
+  if (!hit || pres) return;
+  if (reduceMotion) { controls.target.copy(hit.point); return; }
+  focusS.x.x = controls.target.x; focusS.x.to(hit.point.x);
+  focusS.y.x = controls.target.y; focusS.y.to(hit.point.y);
+  focusS.z.x = controls.target.z; focusS.z.to(hit.point.z);
+  focusS.on = true;
+});
+controls.addEventListener("start", function () { focusS.on = false; });
+
 var clock = new THREE.Clock();
 var shimmerTick = 0, frameTick = 0;
 (function loop() {
@@ -1287,8 +1441,28 @@ var shimmerTick = 0, frameTick = 0;
   var dt = Math.min(clock.getDelta(), .1);
   var now = performance.now();
 
-  if (pres) tickPresentation(now); else controls.update();
-  tickStats(now);
+  if (pres) tickPresentation(now);
+  else {
+    if (focusS.on) {
+      controls.target.set(focusS.x.step(dt, .55), focusS.y.step(dt, .55),
+        focusS.z.step(dt, .55));
+      if (focusS.x.done && focusS.y.done && focusS.z.done) focusS.on = false;
+    }
+    controls.update();
+  }
+
+  if (SC) {
+    var n1 = SC.timesS.length - 1;
+    if (playing) {
+      frameF += PLAY_RATE * +speedSel.value * dt;
+      if (frameF >= n1) { frameF = n1; stopPlay(); }  // settle at the end
+    } else if (!seekSpring.done) {
+      frameF = Math.max(0, Math.min(n1, seekSpring.step(dt, .5)));
+    }
+    morphS.step(dt, .45);
+    syncUI();
+    updateWater(now);
+  }
 
   var wantRain = rainLevel > .02 && !reduceMotion &&
     document.getElementById("cbRain").checked;
@@ -1303,14 +1477,6 @@ var shimmerTick = 0, frameTick = 0;
       rainPos[r * 3 + 1] = y;
     }
     rainGeo.attributes.position.needsUpdate = true;
-  }
-
-  if (!reduceMotion && SC && water.visible) {
-    var t = now * .0022;
-    for (var i = 0; i < N; i++)
-      if (wWet[i]) wpos.setZ(i, wBase[i] + Math.sin(t + i * .53) * .05);
-    wpos.needsUpdate = true;
-    if (++shimmerTick % 4 === 0) waterGeo.computeVertexNormals();
   }
 
   var az = Math.atan2(camera.position.x - controls.target.x,
