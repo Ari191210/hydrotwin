@@ -152,11 +152,12 @@ _TEMPLATE = r"""<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>HydroTwin — 3D Flood Simulation</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#128167;</text></svg>">
 <style>
   :root {
     --bg0: #060a10; --bg1: #0d1420; --panel: rgba(13, 19, 28, .88);
     --line: #1d2836; --line2: #2a3a4e;
-    --text: #e4ecf5; --dim: #7e8ea1; --dimmer: #55657a;
+    --text: #e4ecf5; --dim: #7e8ea1; --dimmer: #71829a;
     --accent: #38d6f5; --accent2: #7c9cf5;
     --red: #ff5c57; --orange: #ffab40; --yellow: #ffd54f;
     --safe: #4cd97b;
@@ -172,13 +173,16 @@ _TEMPLATE = r"""<!DOCTYPE html>
     border: 1px solid var(--line); border-radius: 14px;
     backdrop-filter: blur(10px); box-shadow: 0 8px 32px rgba(0,0,0,.45); }
 
-  /* ---------- header ---------- */
-  #top { top: 14px; left: 14px; right: auto; padding: 14px 20px 12px;
-    width: 344px; }
+  a:focus-visible, button:focus-visible, input:focus-visible,
+  select:focus-visible { outline: 2px solid var(--accent);
+    outline-offset: 2px; }
+
+  /* ---------- header + sidebar column ---------- */
+  #left { position: absolute; top: 14px; left: 14px; bottom: 124px;
+    width: 344px; display: flex; flex-direction: column; gap: 10px; }
+  #top { position: static; padding: 14px 20px 12px; }
   #brand { font-size: 21px; font-weight: 800; letter-spacing: 3px; }
-  #brand em { font-style: normal;
-    background: linear-gradient(90deg, var(--accent), var(--accent2));
-    -webkit-background-clip: text; background-clip: text; color: transparent; }
+  #brand em { font-style: normal; color: var(--accent); }
   #brand small { display: block; font-size: 10px; font-weight: 500;
     letter-spacing: 1.8px; text-transform: uppercase; color: var(--dimmer);
     margin-top: 1px; }
@@ -189,11 +193,11 @@ _TEMPLATE = r"""<!DOCTYPE html>
     background: rgba(255,255,255,.02); transition: all .15s; }
   #tabs a:hover { color: var(--text); border-color: var(--line2); }
   #tabs a.on { color: #04151c; border-color: transparent;
-    background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+    background: var(--accent); }
   .case { color: var(--dim); font-size: 11.5px; margin-top: 10px; }
 
   /* ---------- side ---------- */
-  #side { top: 148px; left: 14px; bottom: 96px; width: 344px;
+  #side { position: static; flex: 1; min-height: 0;
     padding: 16px 18px; overflow-y: auto; overscroll-behavior: contain; }
   #side::-webkit-scrollbar { width: 5px; }
   #side::-webkit-scrollbar-thumb { background: var(--line2);
@@ -228,10 +232,13 @@ _TEMPLATE = r"""<!DOCTYPE html>
 
   .zrow { display: flex; align-items: baseline; gap: 9px; padding: 7px 10px;
     border-radius: 8px; margin-bottom: 5px; background: rgba(255,255,255,.025);
-    border-left: 3px solid var(--line2); font-size: 12px; }
-  .zrow.immediate { border-left-color: var(--red); }
-  .zrow.high { border-left-color: var(--orange); }
-  .zrow.monitor { border-left-color: var(--yellow); }
+    border: 1px solid var(--line); font-size: 12px; }
+  .zrow.immediate { border-color: rgba(255,92,87,.35);
+    background: rgba(255,92,87,.06); }
+  .zrow.high { border-color: rgba(255,171,64,.3);
+    background: rgba(255,171,64,.05); }
+  .zrow.monitor { border-color: rgba(255,213,79,.25);
+    background: rgba(255,213,79,.04); }
   .zid { font-weight: 800; font-size: 13px; color: var(--text); width: 24px;
     flex-shrink: 0; }
   .chip { font-size: 9px; font-weight: 800; letter-spacing: 1px;
@@ -276,11 +283,11 @@ _TEMPLATE = r"""<!DOCTYPE html>
     text-align: center; font-style: normal; font-size: 9px;
     color: var(--dimmer); }
   #controls { display: flex; align-items: center; gap: 13px; }
-  #playbtn { width: 40px; height: 40px; border-radius: 50%; border: none;
+  #playbtn { width: 44px; height: 44px; border-radius: 50%; border: none;
     cursor: pointer; font-size: 15px; color: #04151c; flex-shrink: 0;
-    background: linear-gradient(135deg, var(--accent), var(--accent2));
-    box-shadow: 0 3px 14px rgba(56,214,245,.35); }
-  #playbtn:hover { filter: brightness(1.15); }
+    background: var(--accent); transition: background .15s; }
+  #playbtn:hover { background: #64e2fa; }
+  #playbtn:active { background: #23c3e4; }
   input[type=range] { flex: 1; accent-color: var(--accent); height: 4px; }
   #tlabel { font-variant-numeric: tabular-nums; min-width: 74px;
     text-align: right; font-weight: 700; font-size: 15px;
@@ -317,17 +324,23 @@ _TEMPLATE = r"""<!DOCTYPE html>
     padding: 8px 12px; font-size: 12px; z-index: 10; max-width: 250px;
     box-shadow: 0 6px 24px rgba(0,0,0,.6); }
   #tip b { color: var(--accent); }
-  @media (max-width: 980px) { #side, #top { display: none; }
+  @media (max-width: 980px) { #left { display: none; }
     #bar { width: calc(100% - 28px); } }
+  @media (prefers-reduced-motion: reduce) {
+    .pulse { animation: none; }
+    #tabs a, #rainrow div, #playbtn, #needle { transition: none; }
+  }
 </style>
 </head>
 <body>
-<div id="scene"></div>
+<div id="scene" role="img"
+  aria-label="Rotatable 3D terrain with simulated flood water"></div>
 
+<div id="left">
 <div id="top" class="panel">
   <div id="brand">HYDRO<em>TWIN</em>
     <small>physics-informed flood intelligence</small></div>
-  <nav id="tabs"></nav>
+  <nav id="tabs" aria-label="Demo case"></nav>
   <div class="case" id="caseTitle"></div>
 </div>
 
@@ -351,6 +364,7 @@ _TEMPLATE = r"""<!DOCTYPE html>
   <h2>Points of interest</h2><div id="pois"></div>
   <h2>Data sources</h2><div id="sources"></div>
 </div>
+</div>
 
 <div id="view" class="panel">
   <label><input type="checkbox" id="cbZones"> Evacuation zones</label>
@@ -366,10 +380,13 @@ _TEMPLATE = r"""<!DOCTYPE html>
 <div id="bar" class="panel">
   <div id="rainrow"></div>
   <div id="controls">
-    <button id="playbtn" title="Play / pause (space)">&#9654;</button>
-    <input id="slider" type="range" min="0" value="0">
+    <button id="playbtn" title="Play / pause (space)"
+      aria-label="Play or pause the flood animation">&#9654;</button>
+    <input id="slider" type="range" min="0" value="0"
+      aria-label="Simulation time">
     <span id="tlabel"></span>
-    <select id="speed"><option value="1">1&times;</option>
+    <select id="speed" aria-label="Playback speed">
+      <option value="1">1&times;</option>
       <option value="2" selected>2&times;</option>
       <option value="4">4&times;</option></select>
   </div>
@@ -377,7 +394,8 @@ _TEMPLATE = r"""<!DOCTYPE html>
     &larr;&rarr; to step · hover pins for detail</div>
 </div>
 
-<div id="compass" class="panel" title="North"><span id="needle">N</span></div>
+<div id="compass" class="panel" title="North" aria-hidden="true">
+  <span id="needle">N</span></div>
 <div id="tip"></div>
 
 <script>__THREE_JS__</script>
@@ -430,11 +448,14 @@ scene.fog = new THREE.Fog(0x0a1018, SIZE * 1.8, SIZE * 5);
 var camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, .1, 2000);
 camera.position.set(SIZE * .72, SIZE * .5, SIZE * .92);
 
+var reduceMotion =
+  matchMedia("(prefers-reduced-motion: reduce)").matches;
 var controls = new THREE.OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true; controls.dampingFactor = .06;
 controls.maxPolarAngle = Math.PI * .49;
 controls.minDistance = SIZE * .22; controls.maxDistance = SIZE * 3;
-controls.autoRotate = true; controls.autoRotateSpeed = .55;
+controls.autoRotate = !reduceMotion; controls.autoRotateSpeed = .55;
+document.getElementById("cbSpin").checked = !reduceMotion;
 controls.addEventListener("start", function () {
   controls.autoRotate = false;
   document.getElementById("cbSpin").checked = false;
@@ -503,7 +524,7 @@ function setFrame(f) {
   slider.value = f;
   var hrs = P.timesS[f] / 3600;
   tlabel.textContent = "T+" + Math.floor(hrs) + ":" +
-    ("0" + Math.round(hrs % 1 * 60)).slice(-2) + " h";
+    ("0" + Math.round(hrs % 1 * 60)).slice(-2);
   var s = STATS[f];
   stMax.firstChild.textContent = s.max.toFixed(2);
   stArea.firstChild.textContent = s.areaKm2.toFixed(2);
