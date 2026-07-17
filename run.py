@@ -35,12 +35,32 @@ def run_case(name):
     import visualize
 
     elevation, cell_size, terrain_source = terrain.load_terrain()
-    rain_at, rain_series, rain_source = rainfall.get_rainfall()
+    _, base_series, rain_source = rainfall.get_rainfall()
 
-    times, depths = simulate.run_simulation(elevation, cell_size, rain_at)
+    # One physics run per what-if storm scenario; the RAIN_MULTIPLIER one
+    # is the default shown everywhere (and the only one that may call Claude).
+    scenarios = []
+    for mult in config.WHATIF_MULTIPLIERS:
+        series = [r * mult for r in base_series]
+        is_default = (mult == config.RAIN_MULTIPLIER)
+        print(f"[scenario] storm x{mult:g} "
+              f"(total {sum(series):.0f} mm{' — default' if is_default else ''})")
+        times, depths = simulate.run_simulation(
+            elevation, cell_size,
+            lambda t, s=series: s[min(int(t // 3600), len(s) - 1)])
+        decisions, decision_source = decide.get_decisions(
+            depths, times, allow_claude=is_default, quiet=not is_default)
+        scenarios.append({"mult": mult, "times": times, "depths": depths,
+                          "rain_series": series, "decisions": decisions,
+                          "decision_source": decision_source,
+                          "is_default": is_default})
+
+    default = next(s for s in scenarios if s["is_default"])
+    times, depths = default["times"], default["depths"]
+    decisions, decision_source = default["decisions"], default["decision_source"]
+    rain_series = default["rain_series"]
     simulate.save_checkpoint(times, depths, elevation, cell_size)
 
-    decisions, decision_source = decide.get_decisions(depths, times)
     decisions_path = os.path.join(config.OUTPUT_DIR, "decisions.json")
     with open(decisions_path, "w", encoding="utf-8") as f:
         json.dump({k: v for k, v in decisions.items() if k != "peak_index"},
@@ -49,8 +69,7 @@ def run_case(name):
     viewer_path = None
     try:
         viewer_path = viewer3d.make_3d_viewer(
-            times, depths, elevation, cell_size, decisions,
-            rain_series, rain_source, terrain_source)
+            scenarios, elevation, cell_size, rain_source, terrain_source)
     except Exception as exc:
         print(f"[viewer3d] 3D viewer failed ({type(exc).__name__}: {exc}) "
               f"— 2D map + animation still produced")
@@ -66,15 +85,21 @@ def run_case(name):
                                                   cell_size, decisions)
 
     peak = depths[decisions["peak_index"]]
+    flooded_km2 = float((peak > config.FLOOD_DEPTH_M).sum()) \
+        * cell_size * cell_size / 1e6
     return {
         "case": name, "title": case["title"],
         "terrain": terrain_source, "rain": rain_source,
         "rain_total_mm": sum(rain_series),
         "peak_depth_m": float(peak.max()),
         "flooded_cells": int((peak > config.FLOOD_DEPTH_M).sum()),
+        "flooded_km2": flooded_km2,
+        "people_est": int(flooded_km2 * config.POP_DENSITY_KM2),
+        "pop_density": config.POP_DENSITY_KM2,
         "decisions": decision_source,
         "n_zones": len(decisions.get("evacuation_zones", [])),
         "alert": decisions.get("public_alert", ""),
+        "elevation": elevation, "cell_size": cell_size, "peak_grid": peak,
         "outputs": {"3D viewer": viewer_path, "2D map": map_path,
                     "GIF": gif_path, "MP4": mp4_path,
                     "decisions": decisions_path},
@@ -102,9 +127,20 @@ def main():
             print(f"\n[run] CASE '{name}' FAILED "
                   f"({type(exc).__name__}: {exc}) — continuing with the rest")
 
+    hub_path = None
+    if results:
+        try:
+            import hub
+            hub_path = hub.make_hub(results)
+        except Exception as exc:
+            print(f"[hub] Landing page failed ({type(exc).__name__}: {exc}) "
+                  f"— per-case viewers unaffected")
+
     print("\n" + "=" * 64)
     print("HYDROTWIN SUMMARY")
     print("=" * 64)
+    if hub_path:
+        print(f"\n  START HERE: {os.path.abspath(hub_path)}")
     for r in results:
         print(f"\n  {r['case']} — {r['title']}  ({r['seconds']:.0f} s)")
         print(f"    terrain {r['terrain']} | rain {r['rain']} "

@@ -1,9 +1,11 @@
 """3D flood viewer for HydroTwin.
 
-Generates a fully self-contained flood_3d.html: a rotatable/zoomable three.js
-terrain with the simulated water surface animating over it, live flood stats,
-a rainfall-synced timeline, evacuation decisions and data sources. three.js
-is inlined from assets/web_cache so the page opens with no internet.
+Generates a fully self-contained flood_3d.html: rotatable three.js terrain,
+animated water with shimmer, 3D rainfall scaled by the actual forcing,
+what-if storm scenarios (one physics run each), evacuation route arrows,
+timeline event markers, a scripted presentation mode, live flood stats
+(including a clearly-labeled people-affected estimate), and data sources.
+three.js is inlined from assets/web_cache so the page opens with no internet.
 """
 
 import base64
@@ -17,7 +19,7 @@ from matplotlib.colors import LightSource
 from PIL import Image, ImageDraw
 
 import config
-from decide import zone_name
+from decide import _zone_rc
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 WEB_CACHE = os.path.join(_HERE, "assets", "web_cache")
@@ -26,56 +28,63 @@ PRIORITY_TINT = {"immediate": (239, 83, 80), "high": (255, 152, 0),
                  "monitor": (255, 213, 79)}
 
 
-def make_3d_viewer(times, depths, elevation, cell_size, decisions,
-                   rain_series, rain_source, terrain_source, path=None):
+def make_3d_viewer(scenarios, elevation, cell_size, rain_source,
+                   terrain_source, path=None):
+    """scenarios: list of dicts from run.py (mult, times, depths,
+    rain_series, decisions, decision_source, is_default)."""
     path = path or os.path.join(config.OUTPUT_DIR, "flood_3d.html")
     os.makedirs(config.OUTPUT_DIR, exist_ok=True)
 
     rows, cols = elevation.shape
     elev_north = np.flipud(elevation)  # viewer works north-row-first
-    depths_north = [np.flipud(d) for d in depths]
+    elev_b64 = base64.b64encode(elev_north.astype("<f4").tobytes()).decode()
 
-    elev_b64 = base64.b64encode(
-        elev_north.astype("<f4").tobytes()).decode()
-    depth_cm = np.stack([np.clip(d * 100.0, 0, 65535) for d in depths_north])
-    depths_b64 = base64.b64encode(
-        depth_cm.astype("<u2").tobytes()).decode()
+    default_index = next(i for i, s in enumerate(scenarios) if s["is_default"])
+    scen_payload = []
+    for s in scenarios:
+        depths_north = [np.flipud(d) for d in s["depths"]]
+        depth_cm = np.stack(
+            [np.clip(d * 100.0, 0, 65535) for d in depths_north])
+        dec = s["decisions"]
+        scen_payload.append({
+            "mult": s["mult"],
+            "timesS": [float(t) for t in s["times"]],
+            "rain": [round(r, 1) for r in s["rain_series"]],
+            "alert": str(dec.get("public_alert", "")),
+            "source": s["decision_source"],
+            "evacZones": dec.get("evacuation_zones", []),
+            "pois": [{k: p[k] for k in
+                      ("name", "type", "row", "col", "zone", "depth_here_m")}
+                     for p in dec["pois"]],
+            "routes": dec.get("route_vectors", []),
+            "focusRc": _focus_rc(dec, rows, cols),
+            "depthsB64": base64.b64encode(
+                depth_cm.astype("<u2").tobytes()).decode(),
+            "texZones": _zones_texture(elev_north, dec),
+        })
 
     payload = {
-        "rows": rows, "cols": cols,
-        "cellSize": cell_size,
+        "rows": rows, "cols": cols, "cellSize": cell_size,
         "elevMin": float(elev_north.min()),
         "elevMax": float(elev_north.max()),
-        "nFrames": len(depths),
-        "timesS": [float(t) for t in times],
-        "durationHr": config.SIM_DURATION_HR,
+        "defaultIndex": default_index,
         "caseName": config.ACTIVE_CASE,
         "caseTitle": config.CASE_TITLE,
         "cases": [{"name": n, "title": c["title"].split("—")[0].strip()}
                   for n, c in config.CASES.items()],
         "lat": config.BASIN_LAT, "lon": config.BASIN_LON,
-        "alert": str(decisions.get("public_alert", "")),
-        "decisionSource": decisions.get("source", ""),
         "terrainSource": terrain_source,
         "rainSource": rain_source,
-        "rainSeries": [round(r, 1) for r in rain_series],
-        "evacZones": decisions.get("evacuation_zones", []),
-        "pois": [{k: p[k] for k in
-                  ("name", "type", "row", "col", "zone", "depth_here_m")}
-                 for p in decisions["pois"]],
+        "popDensity": config.POP_DENSITY_KM2,
         "floodDepthM": config.FLOOD_DEPTH_M,
+        "scenarios": scen_payload,
     }
-
-    tex_base = _terrain_texture(elev_north)
-    tex_zones = _zones_texture(elev_north, decisions)
 
     html = _TEMPLATE
     for key, value in (
             ("__PAYLOAD__", json.dumps(payload)),
             ("__ELEV_B64__", elev_b64),
-            ("__DEPTHS_B64__", depths_b64),
-            ("__TEX_BASE__", tex_base),
-            ("__TEX_ZONES__", tex_zones),
+            ("__TEX_BASE__", _terrain_texture(elev_north)),
             ("__THREE_JS__", _read_cache("three.min.js")),
             ("__ORBIT_JS__", _read_cache("OrbitControls.js"))):
         html = html.replace(key, value)
@@ -83,16 +92,30 @@ def make_3d_viewer(times, depths, elevation, cell_size, decisions,
     with open(path, "w", encoding="utf-8") as f:
         f.write(html)
     print(f"[viewer3d] 3D viewer saved to {path} "
-          f"({os.path.getsize(path) // 1024} KB, opens offline)")
+          f"({os.path.getsize(path) // 1024} KB, "
+          f"{len(scenarios)} storm scenarios, opens offline)")
     return path
+
+
+def _focus_rc(decisions, rows, cols):
+    """Grid centre (south-first rc) of the worst evacuation zone, for the
+    presentation-mode final shot. Falls back to the grid centre."""
+    evac = decisions.get("evacuation_zones") or []
+    rband, cband = rows // config.ZONE_DIV, cols // config.ZONE_DIV
+    for e in evac:
+        try:
+            zr, zc = _zone_rc(e["zone"])
+            return [int((zr + 0.5) * rband), int((zc + 0.5) * cband)]
+        except (KeyError, ValueError, IndexError):
+            continue
+    return [rows // 2, cols // 2]
 
 
 def _read_cache(name):
     fpath = os.path.join(WEB_CACHE, name)
     if not os.path.exists(fpath):
         raise FileNotFoundError(
-            f"{name} missing from assets/web_cache — re-run "
-            f"'curl' caching step or restore the repo copy")
+            f"{name} missing from assets/web_cache — restore the repo copy")
     with open(fpath, encoding="utf-8") as f:
         return f.read()
 
@@ -178,9 +201,9 @@ _TEMPLATE = r"""<!DOCTYPE html>
     outline-offset: 2px; }
 
   /* ---------- header + sidebar column ---------- */
-  #left { position: absolute; top: 14px; left: 14px; bottom: 124px;
+  #left { position: absolute; top: 14px; left: 14px; bottom: 138px;
     width: 344px; display: flex; flex-direction: column; gap: 10px; }
-  #top { position: static; padding: 14px 20px 12px; }
+  #top { position: static; padding: 14px 20px 14px; }
   #brand { font-size: 21px; font-weight: 800; letter-spacing: 3px; }
   #brand em { font-style: normal; color: var(--accent); }
   #brand small { display: block; font-size: 10px; font-weight: 500;
@@ -195,6 +218,12 @@ _TEMPLATE = r"""<!DOCTYPE html>
   #tabs a.on { color: #04151c; border-color: transparent;
     background: var(--accent); }
   .case { color: var(--dim); font-size: 11.5px; margin-top: 10px; }
+  #present { width: 100%; margin-top: 10px; padding: 8px 0;
+    border-radius: 8px; border: 1px solid var(--accent); background: none;
+    color: var(--accent); font: inherit; font-size: 12.5px; font-weight: 700;
+    letter-spacing: .8px; cursor: pointer; transition: all .15s; }
+  #present:hover { background: rgba(56,214,245,.12); }
+  #present.running { border-color: var(--red); color: var(--red); }
 
   /* ---------- side ---------- */
   #side { position: static; flex: 1; min-height: 0;
@@ -229,6 +258,8 @@ _TEMPLATE = r"""<!DOCTYPE html>
   .stat span { font-size: 10px; letter-spacing: 1.2px;
     text-transform: uppercase; color: var(--dimmer); }
   .stat.hot b { color: var(--accent); }
+  .stat.wide { grid-column: 1 / -1; }
+  .stat.wide b { color: var(--orange); }
 
   .zrow { display: flex; align-items: baseline; gap: 9px; padding: 7px 10px;
     border-radius: 8px; margin-bottom: 5px; background: rgba(255,255,255,.025);
@@ -288,7 +319,15 @@ _TEMPLATE = r"""<!DOCTYPE html>
     background: var(--accent); transition: background .15s; }
   #playbtn:hover { background: #64e2fa; }
   #playbtn:active { background: #23c3e4; }
-  input[type=range] { flex: 1; accent-color: var(--accent); height: 4px; }
+  #sliderwrap { flex: 1; position: relative; }
+  #sliderwrap input { width: 100%; accent-color: var(--accent); height: 4px;
+    display: block; }
+  #marks { position: absolute; left: 8px; right: 8px; top: -9px; height: 8px;
+    pointer-events: none; }
+  .mark { position: absolute; width: 7px; height: 7px; border-radius: 50%;
+    transform: translateX(-50%); background: var(--yellow);
+    border: 1.5px solid #06090d; pointer-events: auto; cursor: pointer; }
+  .mark.poi { background: var(--red); }
   #tlabel { font-variant-numeric: tabular-nums; min-width: 74px;
     text-align: right; font-weight: 700; font-size: 15px;
     color: var(--accent); }
@@ -299,13 +338,24 @@ _TEMPLATE = r"""<!DOCTYPE html>
     letter-spacing: .6px; margin-top: 7px; }
 
   /* ---------- view options ---------- */
-  #view { top: 14px; right: 14px; padding: 13px 16px; width: 208px;
+  #view { top: 14px; right: 14px; padding: 13px 16px; width: 218px;
     font-size: 12px; }
+  #vh { font-size: 10px; letter-spacing: 2px; text-transform: uppercase;
+    color: var(--dimmer); margin-bottom: 7px; }
+  #storm { display: flex; gap: 5px; margin-bottom: 11px; }
+  #storm button { flex: 1; padding: 6px 0; border-radius: 8px;
+    border: 1px solid var(--line); background: rgba(255,255,255,.02);
+    color: var(--dim); font: inherit; font-size: 12px; font-weight: 700;
+    cursor: pointer; transition: all .15s; }
+  #storm button:hover { color: var(--text); border-color: var(--line2); }
+  #storm button.on { color: #04151c; background: var(--accent);
+    border-color: transparent; }
   #view label { display: flex; gap: 8px; align-items: center;
     padding: 4.5px 0; cursor: pointer; color: var(--dim); }
   #view label:hover { color: var(--text); }
   #view input[type=checkbox] { accent-color: var(--accent); }
-  #view input[type=range] { width: 100%; margin-top: 2px; }
+  #view input[type=range] { width: 100%; margin-top: 2px;
+    accent-color: var(--accent); }
   #legend { margin-top: 10px; }
   #legendbar { height: 9px; border-radius: 5px; background:
     linear-gradient(90deg, #9fd4ff, #2f7fd4, #103a80); }
@@ -328,7 +378,8 @@ _TEMPLATE = r"""<!DOCTYPE html>
     #bar { width: calc(100% - 28px); } }
   @media (prefers-reduced-motion: reduce) {
     .pulse { animation: none; }
-    #tabs a, #rainrow div, #playbtn, #needle { transition: none; }
+    #tabs a, #rainrow div, #playbtn, #needle, #storm button,
+    #present { transition: none; }
   }
 </style>
 </head>
@@ -342,6 +393,7 @@ _TEMPLATE = r"""<!DOCTYPE html>
     <small>physics-informed flood intelligence</small></div>
   <nav id="tabs" aria-label="Demo case"></nav>
   <div class="case" id="caseTitle"></div>
+  <button id="present">&#9654;&nbsp; RUN PRESENTATION</button>
 </div>
 
 <div id="side" class="panel">
@@ -351,14 +403,16 @@ _TEMPLATE = r"""<!DOCTYPE html>
   </div>
   <h2>Live flood state</h2>
   <div id="stats">
-    <div class="stat hot"><b id="stMax">–<i>m</i></b>
+    <div class="stat hot"><b id="stMax">&ndash;<i>m</i></b>
       <span>peak depth</span></div>
-    <div class="stat"><b id="stArea">–<i>km²</i></b>
+    <div class="stat"><b id="stArea">&ndash;<i>km&sup2;</i></b>
       <span>flooded area</span></div>
-    <div class="stat"><b id="stVol">–<i>Mm³</i></b>
+    <div class="stat"><b id="stVol">&ndash;<i>Mm&sup3;</i></b>
       <span>water volume</span></div>
-    <div class="stat"><b id="stZones">–</b>
+    <div class="stat"><b id="stZones">&ndash;</b>
       <span>zones flagged</span></div>
+    <div class="stat wide"><b id="stPeople">&ndash;</b>
+      <span id="stPeopleLab">people in flooded area (est.)</span></div>
   </div>
   <h2>Evacuation priorities</h2><div id="zones"></div>
   <h2>Points of interest</h2><div id="pois"></div>
@@ -367,7 +421,10 @@ _TEMPLATE = r"""<!DOCTYPE html>
 </div>
 
 <div id="view" class="panel">
-  <label><input type="checkbox" id="cbZones"> Evacuation zones</label>
+  <div id="vh">Storm scenario</div>
+  <div id="storm" role="group" aria-label="Storm intensity"></div>
+  <label><input type="checkbox" id="cbZones"> Zones &amp; escape routes</label>
+  <label><input type="checkbox" id="cbRain" checked> Rainfall particles</label>
   <label><input type="checkbox" id="cbSpin" checked> Auto-rotate</label>
   <label style="display:block; margin-top:6px;">Water opacity
     <input type="range" id="rgOpacity" min="30" max="100" value="84"></label>
@@ -382,16 +439,19 @@ _TEMPLATE = r"""<!DOCTYPE html>
   <div id="controls">
     <button id="playbtn" title="Play / pause (space)"
       aria-label="Play or pause the flood animation">&#9654;</button>
-    <input id="slider" type="range" min="0" value="0"
-      aria-label="Simulation time">
+    <div id="sliderwrap">
+      <div id="marks"></div>
+      <input id="slider" type="range" min="0" value="0"
+        aria-label="Simulation time">
+    </div>
     <span id="tlabel"></span>
     <select id="speed" aria-label="Playback speed">
       <option value="1">1&times;</option>
       <option value="2" selected>2&times;</option>
       <option value="4">4&times;</option></select>
   </div>
-  <div id="hint">drag to rotate · scroll to zoom · space to play ·
-    &larr;&rarr; to step · hover pins for detail</div>
+  <div id="hint">drag to rotate &middot; scroll to zoom &middot; space to play
+    &middot; &larr;&rarr; to step &middot; hover pins &amp; dots for detail</div>
 </div>
 
 <div id="compass" class="panel" title="North" aria-hidden="true">
@@ -409,28 +469,12 @@ function b64Bytes(b64) {
   for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
   return out;
 }
-var ELEV = new Float32Array(b64Bytes("__ELEV_B64__").buffer);   // m, north-first
-var DEPTH = new Uint16Array(b64Bytes("__DEPTHS_B64__").buffer); // cm, per frame
+var ELEV = new Float32Array(b64Bytes("__ELEV_B64__").buffer);
 var N = P.rows * P.cols;
-
-// ---- per-frame stats (precomputed once)
 var cellKm2 = P.cellSize * P.cellSize / 1e6;
-var STATS = [];
-var maxDepthCm = 1;
-for (var f = 0; f < P.nFrames; f++) {
-  var mx = 0, wet = 0, sum = 0;
-  for (var i = 0; i < N; i++) {
-    var cm = DEPTH[f * N + i];
-    if (cm > mx) mx = cm;
-    if (cm >= P.floodDepthM * 100) wet++;
-    sum += cm;
-  }
-  if (mx > maxDepthCm) maxDepthCm = mx;
-  STATS.push({ max: mx / 100, areaKm2: wet * cellKm2,
-    volMm3: sum / 100 * P.cellSize * P.cellSize / 1e6 });
-}
+var reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-// ---- scene scale: plane SIZE units wide; auto vertical exaggeration
+// ---- scene scale
 var SIZE = 120;
 var mtu = SIZE / (P.cols * P.cellSize);
 var relief = Math.max(P.elevMax - P.elevMin, 1e-6);
@@ -448,14 +492,11 @@ scene.fog = new THREE.Fog(0x0a1018, SIZE * 1.8, SIZE * 5);
 var camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, .1, 2000);
 camera.position.set(SIZE * .72, SIZE * .5, SIZE * .92);
 
-var reduceMotion =
-  matchMedia("(prefers-reduced-motion: reduce)").matches;
 var controls = new THREE.OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true; controls.dampingFactor = .06;
 controls.maxPolarAngle = Math.PI * .49;
 controls.minDistance = SIZE * .22; controls.maxDistance = SIZE * 3;
 controls.autoRotate = !reduceMotion; controls.autoRotateSpeed = .55;
-document.getElementById("cbSpin").checked = !reduceMotion;
 controls.addEventListener("start", function () {
   controls.autoRotate = false;
   document.getElementById("cbSpin").checked = false;
@@ -469,9 +510,7 @@ scene.add(sun);
 // ---- terrain
 var texLoader = new THREE.TextureLoader();
 var texBase = texLoader.load("__TEX_BASE__");
-var texZones = texLoader.load("__TEX_ZONES__");
 texBase.anisotropy = renderer.capabilities.getMaxAnisotropy();
-texZones.anisotropy = texBase.anisotropy;
 
 var terrainGeo = new THREE.PlaneGeometry(SIZE, SIZE, P.cols - 1, P.rows - 1);
 var tpos = terrainGeo.attributes.position;
@@ -498,42 +537,27 @@ var waterMat = new THREE.MeshPhongMaterial({ vertexColors: true,
 var water = new THREE.Mesh(waterGeo, waterMat);
 water.rotation.x = -Math.PI / 2;
 scene.add(water);
+var wBase = new Float32Array(N);      // water z before shimmer
+var wWet = new Uint8Array(N);         // 1 = visible water at this vertex
 
-var vmaxM = maxDepthCm / 100;
-document.getElementById("legendMax").textContent =
-  vmaxM.toFixed(1) + " m";
-
-function setFrame(f) {
-  f = Math.max(0, Math.min(P.nFrames - 1, f));
-  var off = f * N;
-  for (var i = 0; i < N; i++) {
-    var dm = DEPTH[off + i] / 100;
-    var ty = yOf(ELEV[i] - P.elevMin);
-    if (dm >= .02) {
-      wpos.setZ(i, ty + yOf(dm) + .04);
-      var t = Math.min(dm / vmaxM * 1.5, 1);
-      wcol.setXYZ(i, .62 - .55 * t, .83 - .58 * t, 1 - .5 * t);
-    } else {
-      wpos.setZ(i, ty - 2.5);
-      wcol.setXYZ(i, .3, .55, .9);
-    }
-  }
-  wpos.needsUpdate = true; wcol.needsUpdate = true;
-  waterGeo.computeVertexNormals();
-
-  slider.value = f;
-  var hrs = P.timesS[f] / 3600;
-  tlabel.textContent = "T+" + Math.floor(hrs) + ":" +
-    ("0" + Math.round(hrs % 1 * 60)).slice(-2);
-  var s = STATS[f];
-  stMax.firstChild.textContent = s.max.toFixed(2);
-  stArea.firstChild.textContent = s.areaKm2.toFixed(2);
-  stVol.firstChild.textContent = s.volMm3.toFixed(2);
-  var doneHours = hrs;
-  rainBars.forEach(function (b, h) {
-    b.className = h < doneHours ? "wet" : "";
-  });
+// ---- rainfall particles
+var RAIN_N = 2600, RAIN_H = 70;
+var rainGeo = new THREE.BufferGeometry();
+var rainPos = new Float32Array(RAIN_N * 3);
+var rainSpd = new Float32Array(RAIN_N);
+for (var r = 0; r < RAIN_N; r++) {
+  rainPos[r * 3] = (Math.random() - .5) * SIZE;
+  rainPos[r * 3 + 1] = Math.random() * RAIN_H;
+  rainPos[r * 3 + 2] = (Math.random() - .5) * SIZE;
+  rainSpd[r] = .8 + Math.random() * .5;
 }
+rainGeo.setAttribute("position", new THREE.BufferAttribute(rainPos, 3));
+var rain = new THREE.Points(rainGeo, new THREE.PointsMaterial({
+  color: 0x9fcbe8, size: 1.4, transparent: true, opacity: .38,
+  sizeAttenuation: true, depthWrite: false }));
+rain.visible = false;
+scene.add(rain);
+var rainLevel = 0;   // 0..1 intensity for the current frame
 
 // ---- POI pins
 var poiColors = { hospital: 0xff5c57, school: 0xba68f0, road: 0x9fb2c4 };
@@ -545,7 +569,7 @@ function gridToWorld(row, col, lift) {
   var y = yOf(ELEV[r * P.cols + col] - P.elevMin);
   return new THREE.Vector3(x, y + (lift || 0), z);
 }
-P.pois.forEach(function (p) {
+P.scenarios[P.defaultIndex].pois.forEach(function (p) {
   var pos = gridToWorld(p.row, p.col, 0), h = 7.5;
   var stem = new THREE.Mesh(new THREE.CylinderGeometry(.13, .13, h, 6),
     new THREE.MeshBasicMaterial({ color: 0xc7d3df }));
@@ -560,6 +584,36 @@ P.pois.forEach(function (p) {
   poiMeshes.push(head);
 });
 
+// ---- evacuation route arrows (rebuilt per scenario)
+var routeGroup = new THREE.Group();
+routeGroup.visible = false;
+scene.add(routeGroup);
+function buildRoutes(sc) {
+  while (routeGroup.children.length) {
+    var c = routeGroup.children.pop();
+    c.geometry.dispose(); c.material.dispose();
+  }
+  sc.routes.forEach(function (rt) {
+    var a = gridToWorld(rt.from_rc[0], rt.from_rc[1], 4);
+    var b = gridToWorld(rt.to_rc[0], rt.to_rc[1], 4);
+    var mid = a.clone().lerp(b, .5); mid.y += 11;
+    var curve = new THREE.QuadraticBezierCurve3(a, mid, b);
+    var col = rt.priority === "immediate" ? 0xff5c57 : 0xffab40;
+    var mat = new THREE.MeshBasicMaterial({ color: col, transparent: true,
+      opacity: .85 });
+    var tube = new THREE.Mesh(
+      new THREE.TubeGeometry(curve, 24, .32, 6, false), mat);
+    routeGroup.add(tube);
+    var cone = new THREE.Mesh(new THREE.ConeGeometry(1.1, 2.6, 10),
+      mat.clone());
+    cone.position.copy(b);
+    var tangent = curve.getTangent(1);
+    cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), tangent);
+    routeGroup.add(cone);
+  });
+}
+
+// ---- tooltip
 var ray = new THREE.Raycaster(), mouse = new THREE.Vector2();
 var tip = document.getElementById("tip");
 renderer.domElement.addEventListener("mousemove", function (e) {
@@ -568,7 +622,7 @@ renderer.domElement.addEventListener("mousemove", function (e) {
   var hit = ray.intersectObjects(poiMeshes)[0];
   if (hit) {
     var p = hit.object.userData;
-    tip.innerHTML = "<b>" + p.name + "</b><br>" + p.type + " — zone " +
+    tip.innerHTML = "<b>" + p.name + "</b><br>" + p.type + " &mdash; zone " +
       p.zone + "<br>water depth here: " + p.depth_here_m + " m";
     tip.style.display = "block";
     tip.style.left = (e.clientX + 14) + "px";
@@ -576,7 +630,7 @@ renderer.domElement.addEventListener("mousemove", function (e) {
   } else tip.style.display = "none";
 });
 
-// ---- UI wiring
+// ---- UI element refs
 var slider = document.getElementById("slider");
 var tlabel = document.getElementById("tlabel");
 var playBtn = document.getElementById("playbtn");
@@ -584,9 +638,198 @@ var speedSel = document.getElementById("speed");
 var stMax = document.getElementById("stMax");
 var stArea = document.getElementById("stArea");
 var stVol = document.getElementById("stVol");
-slider.max = P.nFrames - 1;
-document.getElementById("stZones").textContent = P.evacZones.length;
+var stPeople = document.getElementById("stPeople");
+var marksEl = document.getElementById("marks");
+var rainrow = document.getElementById("rainrow");
+var rainBars = [];
 
+// ---- scenario state
+var cur = -1, SC = null, DEPTH = null, vmaxM = 1;
+
+function decodeScenario(sc) {
+  if (!sc._depth) sc._depth = new Uint16Array(b64Bytes(sc.depthsB64).buffer);
+  if (!sc._stats) {
+    sc._stats = []; sc._vmax = 1;
+    var n = sc.timesS.length;
+    for (var f = 0; f < n; f++) {
+      var mx = 0, wet = 0, sum = 0;
+      for (var i = 0; i < N; i++) {
+        var d = sc._depth[f * N + i];
+        if (d > mx) mx = d;
+        if (d >= P.floodDepthM * 100) wet++;
+        sum += d;
+      }
+      if (mx > sc._vmax) sc._vmax = mx;
+      sc._stats.push({ max: mx / 100, areaKm2: wet * cellKm2,
+        volMm3: sum / 100 * P.cellSize * P.cellSize / 1e6 });
+    }
+    sc._events = computeEvents(sc);
+  }
+  if (!sc._tex) {
+    sc._tex = texLoader.load(sc.texZones);
+    sc._tex.anisotropy = texBase.anisotropy;
+  }
+}
+
+function computeEvents(sc) {
+  var ev = [], n = sc.timesS.length, f, i;
+  for (f = 0; f < n; f++)
+    if (sc._stats[f].areaKm2 > 0) { ev.push({ f: f, label: "First flooding",
+      poi: false }); break; }
+  sc.pois.forEach(function (p) {
+    var idx = (P.rows - 1 - p.row) * P.cols + p.col;
+    for (f = 0; f < n; f++)
+      if (sc._depth[f * N + idx] >= P.floodDepthM * 100) {
+        ev.push({ f: f, label: p.name + " at risk", poi: true }); break;
+      }
+  });
+  var best = 0;
+  for (f = 1; f < n; f++)
+    if (sc._stats[f].volMm3 > sc._stats[best].volMm3) best = f;
+  ev.push({ f: best, label: "Peak flood", poi: false });
+  return ev;
+}
+
+function setScenario(i) {
+  if (i === cur) return;
+  cur = i; SC = P.scenarios[i];
+  decodeScenario(SC);
+  DEPTH = SC._depth; vmaxM = SC._vmax / 100;
+  document.getElementById("legendMax").textContent = vmaxM.toFixed(1) + " m";
+  document.getElementById("stZones").textContent = SC.evacZones.length;
+  document.getElementById("alertText").textContent = SC.alert;
+  slider.max = SC.timesS.length - 1;
+
+  // storm segmented control
+  var btns = document.getElementById("storm").children;
+  for (var k = 0; k < btns.length; k++)
+    btns[k].className = k === i ? "on" : "";
+
+  // panels that depend on the scenario
+  renderZones(); renderPois(); renderSources(); renderRainBars();
+  renderMarks(); buildRoutes(SC);
+  poiMeshes.forEach(function (m, j) { m.userData = SC.pois[j]; });
+  if (document.getElementById("cbZones").checked) {
+    terrainMat.map = SC._tex; terrainMat.needsUpdate = true;
+  }
+  setFrame(SC.timesS.length - 1);
+}
+
+function setFrame(f) {
+  f = Math.max(0, Math.min(SC.timesS.length - 1, f));
+  var off = f * N;
+  for (var i = 0; i < N; i++) {
+    var dm = DEPTH[off + i] / 100;
+    var ty = yOf(ELEV[i] - P.elevMin);
+    if (dm >= .02) {
+      wBase[i] = ty + yOf(dm) + .04; wWet[i] = 1;
+      var t = Math.min(dm / vmaxM * 1.5, 1);
+      wcol.setXYZ(i, .62 - .55 * t, .83 - .58 * t, 1 - .5 * t);
+    } else {
+      wBase[i] = ty - 2.5; wWet[i] = 0;
+      wcol.setXYZ(i, .3, .55, .9);
+    }
+    wpos.setZ(i, wBase[i]);
+  }
+  wpos.needsUpdate = true; wcol.needsUpdate = true;
+  waterGeo.computeVertexNormals();
+
+  slider.value = f;
+  var hrs = SC.timesS[f] / 3600;
+  tlabel.textContent = "T+" + Math.floor(hrs) + ":" +
+    ("0" + Math.round(hrs % 1 * 60)).slice(-2);
+  var s = SC._stats[f];
+  stMax.firstChild.textContent = s.max.toFixed(2);
+  stArea.firstChild.textContent = s.areaKm2.toFixed(2);
+  stVol.firstChild.textContent = s.volMm3.toFixed(2);
+  stPeople.textContent = "~" +
+    Math.round(s.areaKm2 * P.popDensity).toLocaleString("en");
+  rainBars.forEach(function (b, h) { b.className = h < hrs ? "wet" : ""; });
+  var hourIdx = Math.min(Math.floor(hrs), SC.rain.length - 1);
+  var rainMax = Math.max.apply(null, SC.rain.concat([1]));
+  rainLevel = hrs >= SC.rain.length ? 0 : SC.rain[hourIdx] / rainMax;
+}
+
+// ---- panel renderers
+function renderZones() {
+  var el = document.getElementById("zones");
+  el.innerHTML = "";
+  if (!SC.evacZones.length)
+    el.innerHTML = "<div class='src'>No evacuation needed.</div>";
+  SC.evacZones.slice(0, 6).forEach(function (z) {
+    var div = document.createElement("div");
+    div.className = "zrow " + z.priority;
+    div.innerHTML = "<span class='zid'>" + z.zone + "</span>" +
+      "<span class='chip " + z.priority + "'>" + z.priority + "</span>" +
+      "<span class='zreason'>" + z.reason + "</span>";
+    el.appendChild(div);
+  });
+  if (SC.evacZones.length > 6) {
+    var more = document.createElement("div");
+    more.className = "src";
+    more.textContent = "+ " + (SC.evacZones.length - 6) +
+      " more zones in decisions.json";
+    el.appendChild(more);
+  }
+}
+
+function renderPois() {
+  var el = document.getElementById("pois");
+  el.innerHTML = "";
+  var css = { hospital: "#ff5c57", school: "#ba68f0", road: "#9fb2c4" };
+  SC.pois.forEach(function (p) {
+    var wet = p.depth_here_m >= P.floodDepthM;
+    var div = document.createElement("div");
+    div.className = "prow";
+    div.innerHTML =
+      "<span class='pdot' style='color:" + css[p.type] + "; background:" +
+      css[p.type] + "'></span>" +
+      "<span class='pname'>" + p.name + "<small>" + p.type +
+      " &middot; zone " + p.zone + "</small></span>" +
+      "<span class='pstat " + (wet ? "wet" : "safe") + "'>" +
+      (wet ? p.depth_here_m + " m" : "SAFE") + "</span>";
+    el.appendChild(div);
+  });
+}
+
+function renderSources() {
+  document.getElementById("sources").innerHTML =
+    "<div class='src'><em>terrain</em><b>" + P.terrainSource + "</b></div>" +
+    "<div class='src'><em>rainfall</em><b>" + P.rainSource + " &times; " +
+    SC.mult + " scenario</b></div>" +
+    "<div class='src'><em>physics</em><b>Landlab OverlandFlow &mdash; 2D " +
+    "shallow water</b></div>" +
+    "<div class='src'><em>decisions</em><b>" + SC.source + "</b></div>" +
+    "<div class='src'><em>people</em><b>assumed " +
+    P.popDensity.toLocaleString("en") + " / km&sup2; density</b></div>";
+}
+
+function renderRainBars() {
+  rainrow.innerHTML = ""; rainBars = [];
+  var rainMax = Math.max.apply(null, SC.rain.concat([1]));
+  SC.rain.forEach(function (r) {
+    var bar = document.createElement("div");
+    bar.style.height = Math.max(r / rainMax * 100, 6) + "%";
+    bar.innerHTML = "<i>" + r + "</i>";
+    rainrow.appendChild(bar);
+    rainBars.push(bar);
+  });
+}
+
+function renderMarks() {
+  marksEl.innerHTML = "";
+  var n = SC.timesS.length - 1;
+  SC._events.forEach(function (e) {
+    var d = document.createElement("div");
+    d.className = "mark" + (e.poi ? " poi" : "");
+    d.style.left = (e.f / n * 100) + "%";
+    d.title = e.label + " (T+" + (SC.timesS[e.f] / 3600).toFixed(1) + "h)";
+    d.addEventListener("click", function () { setFrame(e.f); });
+    marksEl.appendChild(d);
+  });
+}
+
+// ---- playback
 var timer = null;
 function stopPlay() { clearInterval(timer); timer = null;
   playBtn.innerHTML = "&#9654;"; }
@@ -594,7 +837,7 @@ function togglePlay() {
   if (timer) { stopPlay(); return; }
   playBtn.innerHTML = "&#10074;&#10074;";
   timer = setInterval(function () {
-    setFrame((+slider.value + 1) % P.nFrames);
+    setFrame((+slider.value + 1) % SC.timesS.length);
   }, 420 / +speedSel.value);
 }
 playBtn.addEventListener("click", togglePlay);
@@ -603,14 +846,22 @@ speedSel.addEventListener("change", function () {
 });
 slider.addEventListener("input", function () { setFrame(+slider.value); });
 addEventListener("keydown", function (e) {
+  if (present.running) { endPresentation(); return; }
   if (e.code === "Space") { e.preventDefault(); togglePlay(); }
   if (e.code === "ArrowRight") setFrame(+slider.value + 1);
   if (e.code === "ArrowLeft") setFrame(+slider.value - 1);
 });
+
+// ---- view options
 document.getElementById("cbZones").addEventListener("change", function (e) {
-  terrainMat.map = e.target.checked ? texZones : texBase;
+  terrainMat.map = e.target.checked ? SC._tex : texBase;
   terrainMat.needsUpdate = true;
+  routeGroup.visible = e.target.checked;
 });
+document.getElementById("cbRain").addEventListener("change", function (e) {
+  if (!e.target.checked) rain.visible = false;
+});
+document.getElementById("cbSpin").checked = !reduceMotion;
 document.getElementById("cbSpin").addEventListener("change", function (e) {
   controls.autoRotate = e.target.checked;
 });
@@ -618,12 +869,22 @@ document.getElementById("rgOpacity").addEventListener("input", function (e) {
   waterMat.opacity = +e.target.value / 100;
 });
 
-// ---- panels
+// ---- storm scenario control
+var stormEl = document.getElementById("storm");
+P.scenarios.forEach(function (sc, i) {
+  var b = document.createElement("button");
+  b.textContent = sc.mult + "×";
+  b.title = "Storm at " + sc.mult + "× the base rainfall (" +
+    Math.round(sc.rain.reduce(function (a, v) { return a + v; }, 0)) +
+    " mm total)";
+  b.addEventListener("click", function () { setScenario(i); });
+  stormEl.appendChild(b);
+});
+
+// ---- static header
 document.title = "HydroTwin — " + P.caseTitle;
 document.getElementById("caseTitle").textContent =
   P.caseTitle + " · " + P.lat.toFixed(2) + ", " + P.lon.toFixed(2);
-document.getElementById("alertText").textContent = P.alert;
-
 var tabs = document.getElementById("tabs");
 P.cases.forEach(function (c) {
   var a = document.createElement("a");
@@ -633,69 +894,116 @@ P.cases.forEach(function (c) {
   tabs.appendChild(a);
 });
 
-var zonesEl = document.getElementById("zones");
-if (!P.evacZones.length)
-  zonesEl.innerHTML = "<div class='src'>No evacuation needed.</div>";
-P.evacZones.slice(0, 6).forEach(function (z) {
-  var div = document.createElement("div");
-  div.className = "zrow " + z.priority;
-  div.innerHTML = "<span class='zid'>" + z.zone + "</span>" +
-    "<span class='chip " + z.priority + "'>" + z.priority + "</span>" +
-    "<span class='zreason'>" + z.reason + "</span>";
-  zonesEl.appendChild(div);
+// ---- presentation mode
+var present = document.getElementById("present");
+present.running = false;
+var pres = null;
+function easeInOut(t) { return t < .5 ? 4 * t * t * t
+  : 1 - Math.pow(-2 * t + 2, 3) / 2; }
+function startPresentation() {
+  stopPlay();
+  controls.autoRotate = false; controls.enabled = false;
+  var focus = gridToWorld(SC.focusRc[0], SC.focusRc[1], 0);
+  pres = { t0: performance.now(), focus: focus,
+    cam0: camera.position.clone(), tgt0: controls.target.clone() };
+  present.running = true;
+  present.innerHTML = "&#9632;&nbsp; STOP (any key)";
+  present.className = "running";
+  setFrame(0);
+}
+function endPresentation() {
+  pres = null; present.running = false;
+  present.innerHTML = "&#9654;&nbsp; RUN PRESENTATION";
+  present.className = "";
+  controls.enabled = true;
+}
+present.addEventListener("click", function () {
+  if (present.running) endPresentation(); else startPresentation();
 });
-if (P.evacZones.length > 6) {
-  var more = document.createElement("div");
-  more.className = "src";
-  more.textContent = "+ " + (P.evacZones.length - 6) +
-    " more zones in decisions.json";
-  zonesEl.appendChild(more);
+renderer.domElement.addEventListener("pointerdown", function () {
+  if (present.running) endPresentation();
+});
+function tickPresentation(now) {
+  var T = (now - pres.t0) / 1000;
+  var nF = SC.timesS.length - 1;
+  var center = new THREE.Vector3(0, yOf(relief) * .3, 0);
+  if (T < 4) {                      // intro sweep into position
+    var q = easeInOut(T / 4);
+    camera.position.lerpVectors(pres.cam0,
+      sph(0, SIZE * 1.15, SIZE * .6), q);
+    controls.target.lerpVectors(pres.tgt0, center, q);
+  } else if (T < 32) {              // storm plays while camera orbits
+    var q2 = (T - 4) / 28;
+    setFrame(Math.round(q2 * nF));
+    var az = q2 * Math.PI * 1.5;
+    camera.position.copy(sph(az, SIZE * (1.15 - .45 * q2),
+      SIZE * (.6 - .22 * q2)));
+    controls.target.copy(center);
+  } else if (T < 38) {              // descend on the worst zone
+    var q3 = easeInOut((T - 32) / 6);
+    setFrame(nF);
+    var end = pres.focus.clone().add(
+      new THREE.Vector3(SIZE * .22, SIZE * .18, SIZE * .22));
+    camera.position.lerpVectors(sph(Math.PI * 1.5, SIZE * .7, SIZE * .38),
+      end, q3);
+    controls.target.lerpVectors(center, pres.focus, q3);
+  } else if (T < 44) {              // slow hold on the worst zone
+    var az2 = (T - 38) * .1 + Math.PI * .25;
+    var d = SIZE * .32;
+    camera.position.set(pres.focus.x + Math.sin(az2) * d,
+      pres.focus.y + SIZE * .16, pres.focus.z + Math.cos(az2) * d);
+    controls.target.copy(pres.focus);
+  } else endPresentation();
+}
+function sph(az, radius, height) {
+  return new THREE.Vector3(Math.sin(az) * radius, height,
+    Math.cos(az) * radius);
 }
 
-var poisEl = document.getElementById("pois");
-var poiCss = { hospital: "#ff5c57", school: "#ba68f0", road: "#9fb2c4" };
-P.pois.forEach(function (p) {
-  var wet = p.depth_here_m >= P.floodDepthM;
-  var div = document.createElement("div");
-  div.className = "prow";
-  div.innerHTML =
-    "<span class='pdot' style='color:" + poiCss[p.type] + "; background:" +
-    poiCss[p.type] + "'></span>" +
-    "<span class='pname'>" + p.name + "<small>" + p.type + " · zone " +
-    p.zone + "</small></span>" +
-    "<span class='pstat " + (wet ? "wet" : "safe") + "'>" +
-    (wet ? p.depth_here_m + " m" : "SAFE") + "</span>";
-  poisEl.appendChild(div);
-});
+// ---- boot
+setScenario(P.defaultIndex);
 
-document.getElementById("sources").innerHTML =
-  "<div class='src'><em>terrain</em><b>" + P.terrainSource + "</b></div>" +
-  "<div class='src'><em>rainfall</em><b>" + P.rainSource + "</b></div>" +
-  "<div class='src'><em>physics</em><b>Landlab OverlandFlow — 2D shallow " +
-  "water</b></div>" +
-  "<div class='src'><em>decisions</em><b>" + P.decisionSource + "</b></div>";
-
-var rainrow = document.getElementById("rainrow");
-var rainMax = Math.max.apply(null, P.rainSeries.concat([1]));
-var rainBars = P.rainSeries.map(function (r) {
-  var bar = document.createElement("div");
-  bar.style.height = Math.max(r / rainMax * 100, 6) + "%";
-  bar.innerHTML = "<i>" + r + "</i>";
-  rainrow.appendChild(bar);
-  return bar;
-});
-
-// ---- go
-setFrame(P.nFrames - 1);
 var needle = document.getElementById("needle");
 addEventListener("resize", function () {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
 });
+
+var clock = new THREE.Clock();
+var shimmerTick = 0;
 (function loop() {
   requestAnimationFrame(loop);
-  controls.update();
+  var dt = Math.min(clock.getDelta(), .1);
+  var now = performance.now();
+
+  if (pres) tickPresentation(now); else controls.update();
+
+  // rainfall particles, scaled by the current frame's forcing
+  var wantRain = rainLevel > .02 && !reduceMotion &&
+    document.getElementById("cbRain").checked;
+  rain.visible = wantRain;
+  if (wantRain) {
+    var count = Math.floor(RAIN_N * Math.pow(rainLevel, .7));
+    rainGeo.setDrawRange(0, count);
+    var fall = (34 + 46 * rainLevel) * dt;
+    for (var r = 0; r < count; r++) {
+      var y = rainPos[r * 3 + 1] - fall * rainSpd[r];
+      if (y < 0) y += RAIN_H;
+      rainPos[r * 3 + 1] = y;
+    }
+    rainGeo.attributes.position.needsUpdate = true;
+  }
+
+  // water shimmer on wet vertices
+  if (!reduceMotion && SC) {
+    var t = now * .0022;
+    for (var i = 0; i < N; i++)
+      if (wWet[i]) wpos.setZ(i, wBase[i] + Math.sin(t + i * .53) * .05);
+    wpos.needsUpdate = true;
+    if (++shimmerTick % 4 === 0) waterGeo.computeVertexNormals();
+  }
+
   var az = Math.atan2(camera.position.x - controls.target.x,
                       camera.position.z - controls.target.z);
   needle.style.transform = "rotate(" + (az * 180 / Math.PI) + "deg)";

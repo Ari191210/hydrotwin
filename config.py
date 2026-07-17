@@ -10,6 +10,7 @@ CASES = {
     "rishikesh": {
         "title": "Rishikesh — Ganga exiting the Himalaya",
         "lat": 30.11, "lon": 78.29,
+        "pop_density_km2": 1200,   # stated estimate for people-affected calc
         "pois": [
             {"name": "District Hospital", "type": "hospital", "row": 38, "col": 44},
             {"name": "Govt. Senior School", "type": "school", "row": 62, "col": 58},
@@ -20,6 +21,7 @@ CASES = {
     "delhi": {
         "title": "Delhi — Yamuna floodplain",
         "lat": 28.66, "lon": 77.23,
+        "pop_density_km2": 12000,
         "pois": [
             {"name": "LNJP Hospital", "type": "hospital", "row": 45, "col": 30},
             {"name": "Govt. School Kashmere Gate", "type": "school", "row": 58, "col": 42},
@@ -30,6 +32,7 @@ CASES = {
     "hue": {
         "title": "Hue, Vietnam — Perfume River",
         "lat": 16.46, "lon": 107.59,
+        "pop_density_km2": 2500,
         "pois": [
             {"name": "Hue Central Hospital", "type": "hospital", "row": 52, "col": 40},
             {"name": "Quoc Hoc High School", "type": "school", "row": 44, "col": 34},
@@ -46,12 +49,14 @@ CASE_TITLE = CASES["rishikesh"]["title"]
 BASIN_LAT = CASES["rishikesh"]["lat"]
 BASIN_LON = CASES["rishikesh"]["lon"]
 POIS = CASES["rishikesh"]["pois"]
+POP_DENSITY_KM2 = CASES["rishikesh"]["pop_density_km2"]
 OUTPUT_DIR = "outputs/rishikesh"
 
 
 def set_case(name):
     """Point the whole pipeline at one of the demo cases."""
-    global ACTIVE_CASE, CASE_TITLE, BASIN_LAT, BASIN_LON, POIS, OUTPUT_DIR
+    global ACTIVE_CASE, CASE_TITLE, BASIN_LAT, BASIN_LON, POIS, \
+        POP_DENSITY_KM2, OUTPUT_DIR
     if name not in CASES:
         raise KeyError(f"unknown case '{name}' — choose from {list(CASES)}")
     case = CASES[name]
@@ -60,6 +65,7 @@ def set_case(name):
     BASIN_LAT = case["lat"]
     BASIN_LON = case["lon"]
     POIS = case["pois"]
+    POP_DENSITY_KM2 = case["pop_density_km2"]
     OUTPUT_DIR = f"outputs/{name}"
     return case
 
@@ -79,7 +85,8 @@ TEST_RAIN_MM_HR = 30.0     # Phase-1 constant test rainfall
 # ---- Rainfall ------------------------------------------------------------
 MIN_DEMO_RAIN_MM = 30.0    # if the live forecast totals less than this over the
                            # sim window, use the synthetic design storm instead
-RAIN_MULTIPLIER = 2.0      # scale factor applied to whichever series is used
+WHATIF_MULTIPLIERS = [1.0, 2.0, 3.0]   # storm scenarios simulated per case
+RAIN_MULTIPLIER = 2.0      # the default scenario shown (must be in the list)
 OPEN_METEO_TIMEOUT_S = 10
 
 # ---- Decisions ------------------------------------------------------------

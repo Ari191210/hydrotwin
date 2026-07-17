@@ -40,8 +40,8 @@ def get_rainfall():
         series = _synthetic_storm(hours_needed)
         source = "synthetic design storm"
 
-    series = [r * config.RAIN_MULTIPLIER for r in series]
-    print(f"[rainfall] Source: {source} | hourly mm/hr: "
+    # Base (1x) series; storm-scenario multipliers are applied by the caller.
+    print(f"[rainfall] Source: {source} | base hourly mm/hr: "
           f"{[round(r, 1) for r in series]} | total {sum(series):.1f} mm")
 
     def rain_mm_hr_at(t_seconds):

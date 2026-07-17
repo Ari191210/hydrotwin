@@ -80,29 +80,64 @@ Only include zones that actually need action. Consider the points of interest \
 (hospitals and schools raise priority; flooded roads constrain routes)."""
 
 
-def get_decisions(depths, times):
-    """Return (decisions_dict, source_label). Never raises."""
+def get_decisions(depths, times, allow_claude=True, quiet=False):
+    """Return (decisions_dict, source_label). Never raises.
+
+    allow_claude=False forces the (instant, offline) rule-based planner —
+    used for the non-default what-if storm scenarios.
+    """
     summary_text, zones, pois, peak_idx = summarize_flood(depths, times)
-    print("[decide] Flood summary:\n" + summary_text)
+    if not quiet:
+        print("[decide] Flood summary:\n" + summary_text)
 
     decisions = None
-    if os.environ.get("ANTHROPIC_API_KEY"):
+    if allow_claude and os.environ.get("ANTHROPIC_API_KEY"):
         try:
             decisions = _ask_claude(summary_text)
             source = f"Claude ({config.CLAUDE_MODEL})"
         except Exception as exc:
             print(f"[decide] Claude call failed ({type(exc).__name__}: {exc}) "
                   f"-> rule-based fallback")
-    else:
+    elif allow_claude and not quiet:
         print("[decide] ANTHROPIC_API_KEY not set -> rule-based fallback")
 
     if decisions is None:
         decisions = _rule_based(zones, pois)
         source = "rule-based fallback"
 
-    print(f"[decide] Decisions from: {source}")
+    if not quiet:
+        print(f"[decide] Decisions from: {source}")
+    rows, cols = depths[0].shape
     return {**decisions, "zone_stats": zones, "pois": pois,
-            "peak_index": peak_idx, "source": source}, source
+            "peak_index": peak_idx, "source": source,
+            "route_vectors": compute_route_vectors(
+                decisions["evacuation_zones"], zones, rows, cols)}, source
+
+
+def compute_route_vectors(evac_zones, zone_stats, rows, cols):
+    """Grid-coordinate arrows from each urgent zone toward its driest
+    neighbour, for 3D route rendering. Independent of who wrote the
+    decisions (Claude routes stay as prose; arrows come from the data)."""
+    by_depth = {z["zone"]: z for z in zone_stats}
+    rband, cband = rows // config.ZONE_DIV, cols // config.ZONE_DIV
+    vectors = []
+    for e in evac_zones:
+        if e.get("priority") not in ("immediate", "high"):
+            continue
+        try:  # zone names may come from Claude; skip any malformed one
+            target = _driest_neighbor(e["zone"], by_depth)
+            if not target:
+                continue
+            fr, fc = _zone_rc(e["zone"])
+            tr, tc = _zone_rc(target)
+        except (KeyError, ValueError, IndexError):
+            continue
+        vectors.append({
+            "priority": e["priority"],
+            "from_rc": [int((fr + 0.5) * rband), int((fc + 0.5) * cband)],
+            "to_rc": [int((tr + 0.5) * rband), int((tc + 0.5) * cband)],
+        })
+    return vectors
 
 
 def _ask_claude(summary_text):
