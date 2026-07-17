@@ -16,8 +16,13 @@ from matplotlib.colors import LightSource
 
 
 def make_hub(results, path="outputs/index.html"):
+    fonts_css_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                  "assets", "web_cache", "fonts_inline.css")
+    with open(fonts_css_path, encoding="utf-8") as f:
+        fonts_css = f.read()
     rows = "\n".join(_case_row(r) for r in results)
-    html = _TEMPLATE.replace("__ROWS__", rows)
+    html = _TEMPLATE.replace("__FONTS_CSS__", fonts_css) \
+                    .replace("__ROWS__", rows)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         f.write(html)
@@ -70,24 +75,29 @@ _TEMPLATE = r"""<!DOCTYPE html>
 <title>HydroTwin — physics-informed flood intelligence</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#128167;</text></svg>">
 <style>
+__FONTS_CSS__
   :root {
-    --bg0: #060a10; --bg1: #0d1420; --line: #1d2836; --line2: #2a3a4e;
-    --text: #e4ecf5; --dim: #7e8ea1; --dimmer: #71829a;
-    --accent: #38d6f5; --red: #ff5c57;
+    --bg0: #04070c; --bg1: #0b111b;
+    --line: rgba(148, 178, 215, .10); --line2: rgba(148, 178, 215, .22);
+    --text: #e6edf6; --dim: #8494a9; --dimmer: #71829a;
+    --accent: #45cfe9; --red: #ff5c57;
+    --fd: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+    --fm: "IBM Plex Mono", ui-monospace, Consolas, monospace;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { min-height: 100vh; color: var(--text);
-    font: 15px/1.55 "Segoe UI", system-ui, -apple-system, sans-serif;
+    font: 15px/1.55 var(--fd);
     background: radial-gradient(120% 90% at 70% 0%, var(--bg1), var(--bg0));
     padding: 56px 24px 72px; }
   main { max-width: 880px; margin: 0 auto; }
-  h1 { font-size: 34px; font-weight: 800; letter-spacing: 4px; }
+  h1 { font-size: 34px; font-weight: 700; letter-spacing: 4px; }
   h1 em { font-style: normal; color: var(--accent); }
   .tag { color: var(--dim); margin: 6px 0 0; max-width: 62ch;
     text-wrap: pretty; }
   .tag b { color: var(--text); }
   .how { display: flex; gap: 10px; margin: 26px 0 40px; flex-wrap: wrap;
-    color: var(--dimmer); font-size: 12.5px; align-items: center; }
+    color: var(--dimmer); font-family: var(--fm); font-size: 11px;
+    align-items: center; }
   .how span { border: 1px solid var(--line); border-radius: 20px;
     padding: 4px 13px; color: var(--dim); white-space: nowrap; }
   .how i { font-style: normal; }
@@ -107,9 +117,10 @@ _TEMPLATE = r"""<!DOCTYPE html>
     display: -webkit-box; -webkit-line-clamp: 2;
     -webkit-box-orient: vertical; overflow: hidden; text-wrap: pretty; }
   dl { display: flex; gap: 26px; flex-wrap: wrap; }
-  dt { font-size: 10px; letter-spacing: 1.4px; text-transform: uppercase;
-    color: var(--dimmer); }
-  dd { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  dt { font-family: var(--fm); font-size: 9px; letter-spacing: 1.6px;
+    text-transform: uppercase; color: var(--dimmer); }
+  dd { font-family: var(--fm); font-size: 16px; font-weight: 600;
+    font-variant-numeric: tabular-nums; }
   .open { display: inline-block; margin-top: 14px; color: var(--accent);
     font-size: 13px; font-weight: 700; }
 
