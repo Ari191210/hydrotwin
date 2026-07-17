@@ -30,12 +30,29 @@ PRIORITY_TINT = {"immediate": (239, 83, 80), "high": (255, 152, 0),
 
 
 def make_3d_viewer(scenarios, elevation, cell_size, rain_source,
-                   terrain_source, discharge=None, path=None):
+                   terrain_source, discharge=None, path=None, live=False,
+                   issued_at=None, write=True):
     """scenarios: list of dicts from run.py (mult, times, depths,
-    rain_series, decisions, decision_source, is_default)."""
-    path = path or os.path.join(config.OUTPUT_DIR, "flood_3d.html")
-    os.makedirs(config.OUTPUT_DIR, exist_ok=True)
+    rain_series, decisions, decision_source, is_default).
 
+    write=True saves to `path` and returns the path (build mode).
+    write=False returns the HTML string (server mode)."""
+    html = _render_html(scenarios, elevation, cell_size, rain_source,
+                        terrain_source, discharge, live, issued_at)
+    if not write:
+        return html
+    path = path or os.path.join(config.OUTPUT_DIR, "flood_3d.html")
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(html)
+    print(f"[viewer3d] 3D viewer saved to {path} "
+          f"({len(html) // 1024} KB, "
+          f"{len(scenarios)} storm scenarios, opens offline)")
+    return path
+
+
+def _render_html(scenarios, elevation, cell_size, rain_source,
+                 terrain_source, discharge, live, issued_at):
     rows, cols = elevation.shape
     elev_north = np.flipud(elevation)  # viewer works north-row-first
     elev_b64 = base64.b64encode(elev_north.astype("<f4").tobytes()).decode()
@@ -73,8 +90,11 @@ def make_3d_viewer(scenarios, elevation, cell_size, rain_source,
         "defaultIndex": default_index,
         "caseName": config.ACTIVE_CASE,
         "caseTitle": config.CASE_TITLE,
-        "cases": [{"name": n, "title": c["title"].split("—")[0].strip()}
+        "cases": [] if live else
+                 [{"name": n, "title": c["title"].split("—")[0].strip()}
                   for n, c in config.CASES.items()],
+        "live": live,
+        "issuedAt": issued_at,
         "lat": config.BASIN_LAT, "lon": config.BASIN_LON,
         "terrainSource": terrain_source,
         "rainSource": rain_source,
@@ -94,13 +114,7 @@ def make_3d_viewer(scenarios, elevation, cell_size, rain_source,
             ("__THREE_JS__", _read_cache("three.min.js")),
             ("__ORBIT_JS__", _read_cache("OrbitControls.js"))):
         html = html.replace(key, value)
-
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(html)
-    print(f"[viewer3d] 3D viewer saved to {path} "
-          f"({os.path.getsize(path) // 1024} KB, "
-          f"{len(scenarios)} storm scenarios, opens offline)")
-    return path
+    return html
 
 
 def _focus_rc(decisions, rows, cols):
@@ -240,6 +254,10 @@ __FONTS_CSS__
   @media (prefers-reduced-transparency: reduce) {
     .panel { background: #0a0f16; backdrop-filter: none; }
   }
+  body.live #brand { display: none; }
+  body.live #tabs { display: none; }
+  body.live #left { top: 64px; }
+  body.live #view { top: 64px; }
 
   a:focus-visible, button:focus-visible, input:focus-visible,
   select:focus-visible { outline: 2px solid var(--accent);
@@ -1306,6 +1324,7 @@ P.scenarios.forEach(function (sc, i) {
 bootSay(P.scenarios.length + " storm scenarios hydrated");
 
 // ---- static header
+if (P.live) document.body.classList.add("live");
 document.title = "HydroTwin — " + P.caseTitle;
 document.getElementById("caseTitle").textContent =
   P.caseTitle + " · " + P.lat.toFixed(2) + ", " + P.lon.toFixed(2);

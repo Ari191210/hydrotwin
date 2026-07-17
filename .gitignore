@@ -2,3 +2,8 @@
 __pycache__/
 outputs/
 *.pyc
+
+# server runtime
+outputs/_*
+outputs/*.log
+assets/glofas_cache.json

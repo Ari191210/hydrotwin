@@ -70,6 +70,23 @@ def set_case(name):
     return case
 
 
+def set_live_location(lat, lon, title, pois, pop_density_km2=3000,
+                      name="live"):
+    """Point the pipeline at an arbitrary lat/lon (live server mode).
+    Does not touch the CASES preset dict — presets stay as fallback."""
+    global ACTIVE_CASE, CASE_TITLE, BASIN_LAT, BASIN_LON, POIS, \
+        POP_DENSITY_KM2, OUTPUT_DIR
+    ACTIVE_CASE = name
+    CASE_TITLE = title
+    BASIN_LAT = lat
+    BASIN_LON = lon
+    POIS = pois
+    POP_DENSITY_KM2 = pop_density_km2
+    OUTPUT_DIR = f"outputs/{name}"
+    return {"lat": lat, "lon": lon, "title": title, "pois": pois,
+            "pop_density_km2": pop_density_km2}
+
+
 # ---- Grid / storm --------------------------------------------------------
 GRID_ROWS = 100
 GRID_COLS = 100
