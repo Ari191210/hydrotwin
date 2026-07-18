@@ -84,6 +84,15 @@ html,body{height:100%;overflow:hidden;color:var(--text);font:14px/1.5 var(--fd);
 @keyframes lp{0%{box-shadow:0 0 0 0 rgba(76,217,123,.5);}
   100%{box-shadow:0 0 0 8px rgba(76,217,123,0);}}
 #clock{color:var(--accent);}
+#crisk{padding:2px 9px;border-radius:20px;font-size:11px;letter-spacing:.6px;}
+#crisk.normal{color:var(--safe);background:rgba(76,217,123,.12);}
+#crisk.elevated{color:var(--orange);background:rgba(255,171,64,.14);}
+#crisk.high{color:var(--red);background:rgba(255,92,87,.16);
+  animation:rp 1.6s ease-out infinite;}
+@keyframes rp{0%{box-shadow:0 0 0 0 rgba(255,92,87,.5);}
+  100%{box-shadow:0 0 0 7px rgba(255,92,87,0);}}
+#cwx{font-size:12px;}
+@media (prefers-reduced-motion:reduce){#crisk.high{animation:none;}}
 
 /* presets chips */
 #presets{position:absolute;left:20px;bottom:18px;z-index:15;display:flex;
@@ -139,9 +148,13 @@ html,body{height:100%;overflow:hidden;color:var(--text);font:14px/1.5 var(--fd);
     <span id="livedot"></span>
     <div><div class="ld">live clock (UTC)</div><b id="clock">--:--:--</b></div>
     <div class="sep"></div>
+    <div><div class="ld">conditions</div><b id="cwx">--</b></div>
+    <div class="sep"></div>
     <div><div class="ld">rain now</div><b id="crain">--</b></div>
     <div class="sep"></div>
-    <div><div class="ld">river discharge</div><b id="criver">--</b></div>
+    <div><div class="ld">river</div><b id="criver">--</b></div>
+    <div class="sep"></div>
+    <div><div class="ld">live risk</div><b id="crisk" class="risk">--</b></div>
   </div>
 </div>
 
@@ -189,11 +202,28 @@ function pollConditions(){
     .then(function(c){
       var dot=document.getElementById("livedot");
       var rain=c.rain_now_mm_hr;
+      // weather now
+      var wx=document.getElementById("cwx");
+      if(c.weather_text){
+        wx.textContent=(c.weather_emoji?c.weather_emoji+" ":"")+c.weather_text+
+          (c.temp_c!=null?"  "+Math.round(c.temp_c)+"°":"");
+      } else wx.textContent="n/a";
+      // rain + river (with swell arrow)
       document.getElementById("crain").textContent =
         (rain==null?"n/a":rain.toFixed(1)+" mm/h");
-      document.getElementById("criver").textContent =
-        (c.discharge_m3s==null?"n/a"
-          :Math.round(c.discharge_m3s).toLocaleString()+" m³/s");
+      var rv=document.getElementById("criver");
+      if(c.discharge_m3s==null){rv.textContent="n/a";}
+      else{
+        var arrow=c.discharge_pct>3?" ▲":c.discharge_pct<-3?" ▼":"";
+        rv.textContent=Math.round(c.discharge_m3s).toLocaleString()+" m³/s"+arrow;
+      }
+      // live risk badge
+      var rk=document.getElementById("crisk");
+      if(c.risk){
+        rk.textContent=c.risk;
+        rk.className="risk "+c.risk.toLowerCase();
+        rk.title=c.risk_reason||"";
+      } else {rk.textContent="--";rk.className="risk";}
       dot.className = (rain==null&&c.discharge_m3s==null)?"stale":"";
     })
     .catch(function(){document.getElementById("livedot").className="stale";})

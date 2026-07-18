@@ -224,21 +224,28 @@ def current_conditions(lat, lon):
 
     out = {"server_time": datetime.now(timezone.utc).isoformat(),
            "lat": lat, "lon": lon, "rain_now_mm_hr": None,
-           "weather_time": None, "discharge_m3s": None,
-           "discharge_pct": None}
+           "weather_time": None, "temp_c": None, "wind_kmh": None,
+           "weather_text": None, "weather_emoji": None,
+           "discharge_m3s": None, "discharge_pct": None,
+           "risk": None, "risk_reason": None}
     try:
         import requests
 
         r = requests.get(
             "https://api.open-meteo.com/v1/forecast",
             params={"latitude": lat, "longitude": lon,
-                    "current": "precipitation,rain,weather_code",
+                    "current": "precipitation,rain,weather_code,"
+                               "temperature_2m,wind_speed_10m",
                     "forecast_days": 1, "timezone": "UTC"},
             timeout=(4, 8))
         r.raise_for_status()
         cur = r.json().get("current", {})
         out["rain_now_mm_hr"] = cur.get("precipitation")
         out["weather_time"] = cur.get("time")
+        out["temp_c"] = cur.get("temperature_2m")
+        out["wind_kmh"] = cur.get("wind_speed_10m")
+        out["weather_text"], out["weather_emoji"] = \
+            _wmo(cur.get("weather_code"))
     except Exception:
         pass
     try:
@@ -248,5 +255,46 @@ def current_conditions(lat, lon):
             out["discharge_pct"] = d["pct_of_median"]
     except Exception:
         pass
+    out["risk"], out["risk_reason"] = _risk_now(
+        out["rain_now_mm_hr"], out["discharge_pct"])
     _COND_CACHE[key] = (time.time(), out)
     return out
+
+
+def _wmo(code):
+    """WMO weather code -> (text, emoji). Live 'what's the sky doing'."""
+    if code is None:
+        return None, None
+    c = int(code)
+    table = [
+        ({0}, "Clear", "☀️"),
+        ({1, 2}, "Partly cloudy", "⛅"),
+        ({3}, "Overcast", "☁️"),
+        ({45, 48}, "Fog", "\U0001f32b️"),
+        ({51, 53, 55, 56, 57}, "Drizzle", "\U0001f327️"),
+        ({61, 63, 80, 81}, "Rain", "\U0001f327️"),
+        ({65, 82}, "Heavy rain", "⛈️"),
+        ({66, 67}, "Freezing rain", "\U0001f327️"),
+        ({71, 73, 75, 77, 85, 86}, "Snow", "\U0001f328️"),
+        ({95, 96, 99}, "Thunderstorm", "⛈️"),
+    ]
+    for codes, text, emoji in table:
+        if c in codes:
+            return text, emoji
+    return "Cloudy", "☁️"
+
+
+def _risk_now(rain_mm_hr, discharge_pct):
+    """A live flood-risk read from current rain + river-vs-median. Updates
+    as the real conditions change. Heuristic, clearly a live indicator."""
+    rain = rain_mm_hr or 0.0
+    swell = discharge_pct or 0.0
+    if rain >= 7.0 or swell >= 40.0:
+        why = ("heavy rain falling" if rain >= 7.0
+               else f"river {swell:.0f}% above seasonal median")
+        return "HIGH", why
+    if rain >= 1.0 or swell >= 15.0:
+        why = ("rain falling now" if rain >= 1.0
+               else f"river {swell:.0f}% above median")
+        return "ELEVATED", why
+    return "NORMAL", "no active rain, river near seasonal median"
