@@ -192,8 +192,12 @@ def _rule_based(zones, pois):
         if z["zone"] in poi_zones:
             p = poi_zones[z["zone"]]
             reason += f"; contains {p['name']} ({p['type']})"
-            if priority == "monitor" and p["type"] in ("hospital", "school"):
-                priority = "high"
+        # a hospital/school only escalates a zone when water is AT it, not
+        # when one low cell elsewhere in the zone holds a puddle
+        if priority == "monitor" and any(
+                q["zone"] == z["zone"] and q["type"] in ("hospital", "school")
+                and q["depth_here_m"] > config.FLOOD_DEPTH_M for q in pois):
+            priority = "high"
         evac.append({"zone": z["zone"], "priority": priority, "reason": reason})
 
     for e in evac:
@@ -207,11 +211,17 @@ def _rule_based(zones, pois):
                               f"{neighbor} (max depth "
                               f"{by_depth[neighbor]['max_depth_m']} m)"})
 
-    if evac:
-        worst = evac[0]
+    acting = [e for e in evac if e["priority"] != "monitor"]
+    if acting:
+        worst = acting[0]
         alert = (f"Flooding up to {by_depth[worst['zone']]['max_depth_m']} m is "
                  f"expected in zone {worst['zone']} and surrounding areas — "
                  f"residents in affected zones should move to higher ground now.")
+    elif evac:
+        names = ", ".join(e["zone"] for e in evac)
+        alert = (f"Localised ponding up to "
+                 f"{by_depth[evac[0]['zone']]['max_depth_m']} m in low spots of zone(s) {names}; no evacuation needed. "
+                 f"Monitor for updated forecasts.")
     else:
         alert = ("Minor ponding only; no evacuation needed, but stay alert for "
                  "updated forecasts.")

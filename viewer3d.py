@@ -29,16 +29,17 @@ PRIORITY_TINT = {"immediate": (239, 83, 80), "high": (255, 152, 0),
                  "monitor": (255, 213, 79)}
 
 
-def make_3d_viewer(scenarios, elevation, cell_size, rain_source,
-                   terrain_source, discharge=None, path=None, live=False,
+def make_3d_viewer(scenarios, elevation, cell_size, terrain_source,
+                   discharge=None, river=None, path=None, live=False,
                    issued_at=None, write=True):
-    """scenarios: list of dicts from run.py (mult, times, depths,
-    rain_series, decisions, decision_source, is_default).
+    """scenarios: list of dicts from scenarios.run_all (label, mult, whatif,
+    rain_source, times, depths, rain_series, decisions, decision_source,
+    is_default). river: one-line river-inflow source label.
 
     write=True saves to `path` and returns the path (build mode).
     write=False returns the HTML string (server mode)."""
-    html = _render_html(scenarios, elevation, cell_size, rain_source,
-                        terrain_source, discharge, live, issued_at)
+    html = _render_html(scenarios, elevation, cell_size, terrain_source,
+                        discharge, river, live, issued_at)
     if not write:
         return html
     path = path or os.path.join(config.OUTPUT_DIR, "flood_3d.html")
@@ -51,8 +52,8 @@ def make_3d_viewer(scenarios, elevation, cell_size, rain_source,
     return path
 
 
-def _render_html(scenarios, elevation, cell_size, rain_source,
-                 terrain_source, discharge, live, issued_at):
+def _render_html(scenarios, elevation, cell_size, terrain_source,
+                 discharge, river, live, issued_at):
     rows, cols = elevation.shape
     elev_north = np.flipud(elevation)  # viewer works north-row-first
     elev_b64 = base64.b64encode(elev_north.astype("<f4").tobytes()).decode()
@@ -66,6 +67,9 @@ def _render_html(scenarios, elevation, cell_size, rain_source,
         dec = s["decisions"]
         scen_payload.append({
             "mult": s["mult"],
+            "label": s["label"],
+            "whatif": s["whatif"],
+            "rainSource": s["rain_source"],
             "timesS": [float(t) for t in s["times"]],
             "rain": [round(r, 1) for r in s["rain_series"]],
             "alert": str(dec.get("public_alert", "")),
@@ -97,7 +101,8 @@ def _render_html(scenarios, elevation, cell_size, rain_source,
         "issuedAt": issued_at,
         "lat": config.BASIN_LAT, "lon": config.BASIN_LON,
         "terrainSource": terrain_source,
-        "rainSource": rain_source,
+        "terrainSynthetic": terrain_source.startswith("synthetic"),
+        "riverSource": river or "not modelled at this location (rain only)",
         "popDensity": config.POP_DENSITY_KM2,
         "floodDepthM": config.FLOOD_DEPTH_M,
         "durationHr": config.SIM_DURATION_HR,
@@ -302,6 +307,15 @@ __FONTS_CSS__
     transition: all .15s; }
   #present:hover { background: rgba(69,207,233,.1); }
   #present.running { border-color: var(--red); color: var(--red); }
+  #honesty { margin-top: 10px; display: flex; flex-direction: column;
+    gap: 5px; }
+  #honesty div { font-family: var(--fm); font-size: 10px; line-height: 1.4;
+    letter-spacing: .3px; padding: 6px 9px; border-radius: 6px;
+    color: var(--yellow); background: rgba(255,213,79,.1);
+    border: 1px solid rgba(255,213,79,.35); }
+  #honesty b { letter-spacing: 1.2px; }
+  .alert.calm .alert-head { color: var(--safe); }
+  .alert.calm .pulse { background: var(--safe); animation: none; }
 
   /* ---------- side ---------- */
   #side { position: static; flex: 1; min-height: 0;
@@ -470,6 +484,7 @@ __FONTS_CSS__
     color: var(--dim); font-family: var(--fm); font-size: 10.5px;
     font-weight: 600; cursor: pointer; transition: all .15s;
     letter-spacing: .5px; }
+  #storm button { flex: 1 1 auto; padding: 6px 6px; white-space: nowrap; }
   #storm button:hover, #vmode button:hover { color: var(--text);
     border-color: var(--line2); }
   #storm button.on, #vmode button.on { color: #03141b;
@@ -533,12 +548,14 @@ __FONTS_CSS__
     <small>physics-informed flood intelligence</small></div>
   <nav id="tabs" aria-label="Demo case"></nav>
   <div class="case" id="caseTitle"></div>
+  <div id="honesty" role="status"></div>
   <button id="present">&#9654;&nbsp; RUN PRESENTATION</button>
 </div>
 
 <div id="side" class="panel">
   <div class="alert">
-    <div class="alert-head"><span class="pulse"></span>FLOOD ALERT</div>
+    <div class="alert-head"><span class="pulse"></span><span
+      id="alertHead">FLOOD ALERT</span></div>
     <span id="alertText"></span>
   </div>
   <h2>Live flood state</h2>
@@ -576,7 +593,7 @@ __FONTS_CSS__
 </div>
 
 <div id="view" class="panel">
-  <div class="vh">Storm scenario</div>
+  <div class="vh">Rain scenario</div>
   <div id="storm" role="group" aria-label="Storm intensity"></div>
   <div class="vh">Terrain view</div>
   <div id="vmode" role="group" aria-label="Terrain view mode"></div>
@@ -962,6 +979,12 @@ function setScenario(i) {
   document.getElementById("legendMax").textContent = vmaxM.toFixed(1) + " m";
   document.getElementById("stZones").textContent = SC.evacZones.length;
   document.getElementById("alertText").textContent = SC.alert;
+  var calm = !SC.evacZones.some(function (z) {
+    return z.priority === "immediate" || z.priority === "high"; });
+  document.querySelector(".alert").classList.toggle("calm", calm);
+  document.getElementById("alertHead").textContent =
+    calm ? "NO FLOOD EXPECTED" : "FLOOD ALERT";
+  renderHonesty();
   slider.max = SC.timesS.length - 1;
 
   var btns = document.getElementById("storm").children;
@@ -1173,11 +1196,28 @@ function renderPois() {
   });
 }
 
+// Anything on screen that is not the real forecast over real ground says so
+function renderHonesty() {
+  var msgs = [];
+  if (P.terrainSynthetic)
+    msgs.push("<b>SYNTHETIC TERRAIN</b> &mdash; the elevation download " +
+      "failed; this ground shape is invented, not " + P.caseTitle + ".");
+  if (SC.whatif)
+    msgs.push("<b>WHAT-IF: " + SC.label.toUpperCase() + "</b> &mdash; " +
+      (SC.rainSource.indexOf("design storm") === 0
+        ? "a synthetic storm, not the forecast."
+        : "the forecast rain &times;" + SC.mult + ", not the forecast."));
+  document.getElementById("honesty").innerHTML = msgs.map(function (m) {
+    return "<div>" + m + "</div>";
+  }).join("");
+}
+
 function renderSources() {
   document.getElementById("sources").innerHTML =
     "<div class='src'><em>terrain</em><b>" + P.terrainSource + "</b></div>" +
-    "<div class='src'><em>rainfall</em><b>" + P.rainSource + " &times; " +
-    SC.mult + " scenario</b></div>" +
+    "<div class='src'><em>rainfall</em><b>" + SC.rainSource +
+    (SC.mult !== 1 ? " &times; " + SC.mult : "") + "</b></div>" +
+    "<div class='src'><em>river</em><b>" + P.riverSource + "</b></div>" +
     "<div class='src'><em>physics</em><b>Landlab OverlandFlow &mdash; 2D " +
     "shallow water</b></div>" +
     "<div class='src'><em>decisions</em><b>" + SC.source + "</b></div>" +
@@ -1217,7 +1257,7 @@ document.getElementById("sitrep").addEventListener("click", function () {
     "HYDROTWIN SITUATION REPORT",
     "==========================",
     "Case      : " + P.caseTitle + " (" + P.lat + ", " + P.lon + ")",
-    "Scenario  : storm x" + SC.mult + " (" +
+    "Scenario  : " + SC.label + (SC.whatif ? " (WHAT-IF)" : "") + " (" +
       Math.round(SC.rain.reduce(function (a, v) { return a + v; }, 0)) +
       " mm over " + SC.rain.length + " h)",
     "Sim time  : T+" + (SC.timesS[f] / 3600).toFixed(2) + " h",
@@ -1244,13 +1284,15 @@ document.getElementById("sitrep").addEventListener("click", function () {
   });
   lines.push("", "SOURCES",
     "  terrain   : " + P.terrainSource,
-    "  rainfall  : " + P.rainSource + " x" + SC.mult,
+    "  rainfall  : " + SC.rainSource + " x" + SC.mult,
+    "  river     : " + P.riverSource,
     "  physics   : Landlab OverlandFlow (2D shallow water)",
     "  decisions : " + SC.source, "");
   var blob = new Blob([lines.join("\n")], { type: "text/plain" });
   var a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = "hydrotwin_sitrep_" + P.caseName + "_x" + SC.mult + ".txt";
+  a.download = "hydrotwin_sitrep_" + P.caseName + "_" +
+    SC.label.replace(/[^a-z0-9]+/gi, "") + ".txt";
   a.click();
   URL.revokeObjectURL(a.href);
 });
@@ -1333,8 +1375,9 @@ if (P.discharge) {
 var stormEl = document.getElementById("storm");
 P.scenarios.forEach(function (sc, i) {
   var b = document.createElement("button");
-  b.textContent = sc.mult + "×";
-  b.title = "Storm at " + sc.mult + "× the base rainfall (" +
+  b.textContent = sc.label;
+  b.title = (sc.whatif ? "What-if: " : "As forecast: ") + sc.rainSource +
+    (sc.mult !== 1 ? " ×" + sc.mult : "") + " (" +
     Math.round(sc.rain.reduce(function (a, v) { return a + v; }, 0)) +
     " mm total)";
   b.addEventListener("click", function () { setScenario(i); });

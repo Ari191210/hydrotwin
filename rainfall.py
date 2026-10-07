@@ -1,8 +1,8 @@
 """Rainfall forcing for HydroTwin.
 
 Primary: Open-Meteo hourly precipitation forecast for the basin (no API key).
-Fallback: built-in synthetic design storm (rising then tapering hyetograph).
-The fallback is also used when the live forecast is too dry to demo a flood.
+The built-in synthetic design storm is only ever a labelled what-if
+scenario; it never stands in for the forecast.
 """
 
 import math
@@ -13,42 +13,35 @@ import config
 SYNTHETIC_STORM_MM_HR = [5.0, 18.0, 42.0, 55.0, 28.0, 12.0, 6.0, 3.0]
 
 
-def get_rainfall():
-    """Return (rain_mm_hr_at, hourly_series_mm_hr, source_label).
+DESIGN_SOURCE = "design storm (synthetic, not a forecast)"
 
-    rain_mm_hr_at is a callable t_seconds -> mm/hr (piecewise-constant hourly).
-    Never raises; falls back to the synthetic storm on any failure.
+
+def get_rainfall():
+    """Return {"series": [mm/hr per hour] or None, "source": label}.
+
+    series is the live forecast's wettest window as issued, even when it is
+    dry: "no flood expected" is a correct answer. It is None only when the
+    forecast could not be fetched. Never raises.
     """
     hours_needed = max(1, math.ceil(config.SIM_DURATION_HR))
-    series, source = None, None
-
     try:
         series = _fetch_open_meteo(hours_needed)
         total = sum(series)
-        if total < config.MIN_DEMO_RAIN_MM:
-            print(f"[rainfall] Open-Meteo forecast is too dry for a flood demo "
-                  f"({total:.1f} mm over {hours_needed} h < "
-                  f"{config.MIN_DEMO_RAIN_MM} mm) -> using synthetic design storm")
-            series = None
-        else:
-            source = "Open-Meteo live forecast"
+        print(f"[rainfall] Open-Meteo forecast, wettest {hours_needed} h "
+              f"window: {[round(r, 1) for r in series]} | total {total:.1f} mm"
+              + (" (below the flood-demo threshold; the design storm is "
+                 "offered as a labelled what-if)"
+                 if total < config.MIN_DEMO_RAIN_MM else ""))
+        return {"series": series, "source": "Open-Meteo live forecast"}
     except Exception as exc:
         print(f"[rainfall] Open-Meteo failed ({type(exc).__name__}: {exc}) "
-              f"-> using synthetic design storm")
+              f"-> no forecast; only the design storm what-if is available")
+        return {"series": None, "source": "forecast unavailable"}
 
-    if series is None:
-        series = _synthetic_storm(hours_needed)
-        source = "synthetic design storm"
 
-    # Base (1x) series; storm-scenario multipliers are applied by the caller.
-    print(f"[rainfall] Source: {source} | base hourly mm/hr: "
-          f"{[round(r, 1) for r in series]} | total {sum(series):.1f} mm")
-
-    def rain_mm_hr_at(t_seconds):
-        idx = min(int(t_seconds // 3600.0), len(series) - 1)
-        return series[idx]
-
-    return rain_mm_hr_at, series, source
+def design_storm():
+    hours_needed = max(1, math.ceil(config.SIM_DURATION_HR))
+    return _synthetic_storm(hours_needed)
 
 
 def _fetch_open_meteo(hours_needed):

@@ -44,6 +44,39 @@ def load_terrain():
     return elev, cell, "synthetic river valley"
 
 
+def cell_size_m(lat=None, zoom=None):
+    """Metres per AWS terrarium pixel at this latitude and zoom."""
+    lat = config.BASIN_LAT if lat is None else lat
+    zoom = config.TERRAIN_ZOOM if zoom is None else zoom
+    return 156_543.03392 * math.cos(math.radians(lat)) / 2 ** zoom
+
+
+def _mercator_px(lat, lon, zoom):
+    n = 2 ** zoom
+    lat_r = math.radians(lat)
+    px = (lon + 180.0) / 360.0 * n * 256.0
+    py = (1.0 - math.log(math.tan(lat_r) + 1.0 / math.cos(lat_r)) / math.pi) \
+        / 2.0 * n * 256.0
+    return px, py
+
+
+def latlon_to_rc(lat, lon, rows=None, cols=None):
+    """Grid (row, col) of a lat/lon in the active basin window (row 0 =
+    south), using the same Web-Mercator crop as the AWS loader. Returns
+    None when the point falls outside the grid."""
+    rows = rows or config.GRID_ROWS
+    cols = cols or config.GRID_COLS
+    zoom = config.TERRAIN_ZOOM
+    cx, cy = _mercator_px(config.BASIN_LAT, config.BASIN_LON, zoom)
+    x0, y0 = int(cx - cols / 2), int(cy - rows / 2)
+    px, py = _mercator_px(lat, lon, zoom)
+    col = int(px - x0)
+    row = rows - 1 - int(py - y0)       # tile rows run north->south
+    if 0 <= row < rows and 0 <= col < cols:
+        return row, col
+    return None
+
+
 def _fill_noise_pits(elev):
     """Light smoothing of real DEMs. Raw SRTM at ~30 m is full of single-cell
     pits that trap water as speckle; a small gaussian keeps the valleys but
@@ -67,7 +100,7 @@ def _sanity_check(elev):
 def _from_opentopography():
     import requests
 
-    half_deg = (config.GRID_ROWS * config.CELL_SIZE_M / 2.0) / 111_320.0
+    half_deg = (config.GRID_ROWS * cell_size_m() / 2.0) / 111_320.0
     url = "https://portal.opentopography.org/API/globaldem"
     params = {
         "demtype": "SRTMGL1",
@@ -109,21 +142,18 @@ def _parse_aaigrid(text):
     return header, grid
 
 
-def _from_aws_terrain_tiles(zoom=12):
+def _from_aws_terrain_tiles(zoom=None):
     """Fetch terrarium tiles and crop a window centred EXACTLY on the basin
     lat/lon (stitching neighbouring tiles when the window crosses a tile
     edge) so map overlays line up with real basemap tiles."""
     import requests
     from PIL import Image
 
-    n = 2 ** zoom
-    lat_r = math.radians(config.BASIN_LAT)
+    zoom = zoom or config.TERRAIN_ZOOM
     rows, cols = config.GRID_ROWS, config.GRID_COLS
 
     # global pixel coordinates of the basin centre at this zoom
-    px = (config.BASIN_LON + 180.0) / 360.0 * n * 256.0
-    py = (1.0 - math.log(math.tan(lat_r) + 1.0 / math.cos(lat_r)) / math.pi) \
-        / 2.0 * n * 256.0
+    px, py = _mercator_px(config.BASIN_LAT, config.BASIN_LON, zoom)
     x0, y0 = int(px - cols / 2), int(py - rows / 2)
 
     tx0, tx1 = x0 // 256, (x0 + cols - 1) // 256
@@ -145,7 +175,7 @@ def _from_aws_terrain_tiles(zoom=12):
     elev = mosaic[y0 - ty0 * 256:y0 - ty0 * 256 + rows,
                   x0 - tx0 * 256:x0 - tx0 * 256 + cols]
     elev = np.flipud(elev)  # tile row 0 = north; Landlab wants row 0 = south
-    cell = 156_543.03392 * math.cos(lat_r) / n  # metres per pixel at this zoom
+    cell = cell_size_m(zoom=zoom)  # metres per pixel at this zoom
     return elev.copy(), cell
 
 
@@ -161,7 +191,7 @@ def _synthetic_valley():
     """Sloping plane + carved meandering river channel + smooth noise."""
     from scipy.ndimage import gaussian_filter
 
-    rows, cols, cell = config.GRID_ROWS, config.GRID_COLS, config.CELL_SIZE_M
+    rows, cols, cell = config.GRID_ROWS, config.GRID_COLS, cell_size_m()
     rng = np.random.default_rng(42)
 
     yy = np.arange(rows, dtype=float)[:, None]

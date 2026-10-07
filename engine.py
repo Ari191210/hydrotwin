@@ -17,10 +17,9 @@ from datetime import datetime, timezone
 import numpy as np
 
 import config
-import decide
 import flooddata
 import rainfall
-import simulate
+import scenarios as scen
 import terrain
 import viewer3d
 
@@ -74,36 +73,25 @@ def simulate_location(lat, lon, title=None, pop_density=None,
         config.POIS = pois
 
         say("reading live rainfall", 40)
-        _, base_series, rain_source = rainfall.get_rainfall()
+        rain = rainfall.get_rainfall()
 
         say("reading live river discharge", 48)
         discharge = flooddata.get_river_discharge()
+        inflow, q_in, river_label = scen.river_inflow(elevation, cell_size,
+                                                      discharge)
 
-        scenarios = []
-        n = len(config.WHATIF_MULTIPLIERS)
-        for i, mult in enumerate(config.WHATIF_MULTIPLIERS):
-            say(f"running physics {i + 1}/{n} (storm x{mult:g})",
-                52 + int(38 * i / n))
-            series = [r * mult for r in base_series]
-            is_default = (mult == config.RAIN_MULTIPLIER)
-            times, depths = simulate.run_simulation(
-                elevation, cell_size,
-                lambda t, s=series: s[min(int(t // 3600), len(s) - 1)])
-            decisions, decision_source = decide.get_decisions(
-                depths, times, allow_claude=is_default, quiet=True)
-            scenarios.append({
-                "mult": mult, "times": times, "depths": depths,
-                "rain_series": series, "decisions": decisions,
-                "decision_source": decision_source,
-                "is_default": is_default})
+        scenarios = scen.run_all(scen.plan(rain), elevation, cell_size,
+                                 inflow, q_in, say=say)
 
         say("rendering 3D scene", 92)
         issued_at = datetime.now(timezone.utc).isoformat()
         html = viewer3d.make_3d_viewer(
-            scenarios, elevation, cell_size, rain_source, terrain_source,
-            discharge=discharge, live=True, issued_at=issued_at, write=False)
+            scenarios, elevation, cell_size, terrain_source,
+            discharge=discharge, river=river_label, live=True,
+            issued_at=issued_at, write=False)
 
         default = next(s for s in scenarios if s["is_default"])
+        rain_source = default["rain_source"]
         peak = default["depths"][default["decisions"]["peak_index"]]
         flooded_km2 = float((peak > config.FLOOD_DEPTH_M).sum()) \
             * cell_size * cell_size / 1e6
@@ -130,9 +118,14 @@ def simulate_location(lat, lon, title=None, pop_density=None,
                                        default["decisions"]["zone_stats"]),
                   "reports": []}
 
-        if len(_CACHE) >= _CACHE_MAX:
-            _CACHE.pop(next(iter(_CACHE)))
-        _CACHE[key] = result
+        # never cache a run on invented ground: a retry after the terrain
+        # download recovers should get the real DEM
+        if terrain_source.startswith("synthetic"):
+            print("[engine] synthetic terrain -> result not cached")
+        else:
+            if len(_CACHE) >= _CACHE_MAX:
+                _CACHE.pop(next(iter(_CACHE)))
+            _CACHE[key] = result
         say("done", 100)
         return result
 

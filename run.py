@@ -27,8 +27,8 @@ def run_case(name):
           f"storm {config.SIM_DURATION_HR} h")
     print("=" * 64)
 
-    import decide
     import rainfall
+    import scenarios as scen
     import simulate
     import terrain
     import viewer3d
@@ -37,28 +37,19 @@ def run_case(name):
     import flooddata
 
     elevation, cell_size, terrain_source = terrain.load_terrain()
-    _, base_series, rain_source = rainfall.get_rainfall()
+    config.POIS = scen.resolve_pois(config.POIS, elevation.shape)
+    rain = rainfall.get_rainfall()
     discharge = flooddata.get_river_discharge()
+    inflow, q_in, river_label = scen.river_inflow(elevation, cell_size,
+                                                  discharge)
 
-    # One physics run per what-if storm scenario; the RAIN_MULTIPLIER one
-    # is the default shown everywhere (and the only one that may call Claude).
-    scenarios = []
-    for mult in config.WHATIF_MULTIPLIERS:
-        series = [r * mult for r in base_series]
-        is_default = (mult == config.RAIN_MULTIPLIER)
-        print(f"[scenario] storm x{mult:g} "
-              f"(total {sum(series):.0f} mm{' — default' if is_default else ''})")
-        times, depths = simulate.run_simulation(
-            elevation, cell_size,
-            lambda t, s=series: s[min(int(t // 3600), len(s) - 1)])
-        decisions, decision_source = decide.get_decisions(
-            depths, times, allow_claude=is_default, quiet=not is_default)
-        scenarios.append({"mult": mult, "times": times, "depths": depths,
-                          "rain_series": series, "decisions": decisions,
-                          "decision_source": decision_source,
-                          "is_default": is_default})
+    # The default scenario is the forecast as issued (the only one that may
+    # call Claude); the rest are labelled what-ifs.
+    scenarios = scen.run_all(scen.plan(rain), elevation, cell_size,
+                             inflow, q_in)
 
     default = next(s for s in scenarios if s["is_default"])
+    rain_source = default["rain_source"]
     times, depths = default["times"], default["depths"]
     decisions, decision_source = default["decisions"], default["decision_source"]
     rain_series = default["rain_series"]
@@ -72,8 +63,8 @@ def run_case(name):
     viewer_path = None
     try:
         viewer_path = viewer3d.make_3d_viewer(
-            scenarios, elevation, cell_size, rain_source, terrain_source,
-            discharge=discharge)
+            scenarios, elevation, cell_size, terrain_source,
+            discharge=discharge, river=river_label)
     except Exception as exc:
         print(f"[viewer3d] 3D viewer failed ({type(exc).__name__}: {exc}) "
               f"— 2D map + animation still produced")
