@@ -671,17 +671,16 @@ __FONTS_CSS__
       <div class="llab"><span>floods first</span><span>floods last</span></div>
     </div>
   </div>
-</div>
-
-<div id="mlpanel" class="panel" style="display:none">
-  <div class="vh">ML instant preview <button id="mlToggle">OFF</button></div>
-  <div id="mlbody" style="display:none">
-    <label>Rain total <b id="mlRainLab"></b>
-      <input type="range" id="mlRain" min="0" max="100" value="25"></label>
-    <label>River excess <b id="mlRiverLab"></b>
-      <input type="range" id="mlRiver" min="0" max="100" value="25"></label>
-    <div id="mlStats" class="src"></div>
-    <div id="mlNote" class="src"></div>
+  <div id="mlpanel" style="display:none">
+    <div class="vh">ML instant preview <button id="mlToggle">OFF</button></div>
+    <div id="mlbody" style="display:none">
+      <label>Rain total <b id="mlRainLab"></b>
+        <input type="range" id="mlRain" min="0" max="100" value="25"></label>
+      <label>River excess <b id="mlRiverLab"></b>
+        <input type="range" id="mlRiver" min="0" max="100" value="25"></label>
+      <div id="mlStats" class="src"></div>
+      <div id="mlNote" class="src"></div>
+    </div>
   </div>
 </div>
 
@@ -1460,6 +1459,83 @@ P.scenarios.forEach(function (sc, i) {
 });
 bootSay(P.scenarios.length + " storm scenarios hydrated");
 
+// ---- ML instant preview: a per-pixel cubic polynomial fit to 380 of this
+// project's own Landlab physics runs (held-out RMSE/IoU in P.surrogate.
+// metrics). It replaces nothing — it's an isolated extra panel so a bad
+// slider value can never corrupt the validated scenario/physics state.
+var mlActive = false, mlCoef = null;
+if (P.surrogate) {
+  var S = P.surrogate;
+  mlCoef = new Float32Array(b64Bytes(S.coefB64).buffer);  // (10, N)
+  document.getElementById("mlpanel").style.display = "";
+  var mlRain = document.getElementById("mlRain");
+  var mlRiver = document.getElementById("mlRiver");
+  var mlRainLab = document.getElementById("mlRainLab");
+  var mlRiverLab = document.getElementById("mlRiverLab");
+  document.getElementById("mlNote").textContent =
+    "Fit to " + S.metrics.method + ". Held-out accuracy: RMSE " +
+    S.metrics.rmse_m.toFixed(2) + " m, wet-area IoU " +
+    S.metrics.iou.toFixed(2) + ". Not the validated physics result " +
+    "shown elsewhere in this viewer — an instant approximation of it.";
+
+  function mlFeat(r, q) {
+    return [1, r, q, r * r, q * q, r * q, r ** 3, q ** 3, r * r * q, r * q * q];
+  }
+
+  function computeML() {
+    var rainFrac = +mlRain.value / 100, riverFrac = +mlRiver.value / 100;
+    var rainMm = rainFrac * S.rain_max * 96;  // rain_max=4 units * 96mm/unit
+    var riverQ = riverFrac * S.river_qmax;
+    mlRainLab.textContent = Math.round(rainMm) + " mm";
+    mlRiverLab.textContent = Math.round(riverQ) + " m³/s";
+    var r = rainFrac * S.rain_max, q = riverQ / S.q_scale;
+    var f = mlFeat(r, q), depth = new Float32Array(N);
+    var maxD = 0, wetCells = 0;
+    for (var i = 0; i < N; i++) {
+      var v = 0;
+      for (var k = 0; k < 10; k++) v += f[k] * mlCoef[k * N + i];
+      if (v < 0) v = 0;
+      depth[i] = v;
+      if (v > maxD) maxD = v;
+      if (v >= P.floodDepthM) wetCells++;
+    }
+    document.getElementById("mlStats").innerHTML =
+      "<div class='src'><em>peak depth</em><b>" + maxD.toFixed(2) +
+      " m</b></div><div class='src'><em>flooded area</em><b>" +
+      (wetCells * P.cellSize * P.cellSize / 1e6).toFixed(2) +
+      " km²</b></div>";
+    return depth;
+  }
+
+  function updateWaterML() {
+    var depth = computeML();
+    for (var i = 0; i < N; i++) {
+      var ty = yOf(ELEV[i] - P.elevMin), dm = depth[i];
+      if (dm >= .02) {
+        wpos.setZ(i, ty + yOf(dm) + .04);
+        var t = Math.min(dm / 4 * 1.5, 1);
+        wcol.setXYZ(i, .62 - .55 * t, .83 - .58 * t, 1 - .5 * t);
+      } else {
+        wpos.setZ(i, ty - 2.5);
+        wcol.setXYZ(i, .3, .55, .9);
+      }
+    }
+    wpos.needsUpdate = true; wcol.needsUpdate = true;
+    waterGeo.computeVertexNormals();
+  }
+
+  document.getElementById("mlToggle").addEventListener("click", function () {
+    mlActive = !mlActive;
+    this.textContent = mlActive ? "ON" : "OFF";
+    this.className = mlActive ? "on" : "";
+    document.getElementById("mlbody").style.display = mlActive ? "" : "none";
+    if (mlActive) { playing = false; stopPlay(); updateWaterML(); }
+    else waterDirty = true;                       // snap scenario water back
+  });
+  mlRain.addEventListener("input", function () { if (mlActive) updateWaterML(); });
+  mlRiver.addEventListener("input", function () { if (mlActive) updateWaterML(); });
+}
+
 // ---- static header
 if (P.live) document.body.classList.add("live");
 document.title = "HydroTwin — " + P.caseTitle;
@@ -1607,7 +1683,10 @@ var shimmerTick = 0, frameTick = 0;
     controls.update();
   }
 
-  if (SC) {
+  if (mlActive) {
+    // static prediction for the current slider values — no timeline,
+    // no playback; the slider handlers already redraw on input
+  } else if (SC) {
     var n1 = SC.timesS.length - 1;
     if (playing) {
       frameF += PLAY_RATE * +speedSel.value * dt;
