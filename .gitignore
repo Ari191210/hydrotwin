@@ -8,3 +8,12 @@ outputs/_*
 outputs/*.log
 assets/glofas_cache.json
 assets/imagery/
+
+# generated surrogate training data (not source)
+assets/surrogate/
+assets/surrogate_delhi_train.npz
+assets/surrogate_delhi_val.npz
+
+# tool caches, not project source
+.impeccable/
+.firecrawl/

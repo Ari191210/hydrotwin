@@ -119,6 +119,7 @@ def _render_html(scenarios, elevation, cell_size, terrain_source,
         "durationHr": config.SIM_DURATION_HR,
         "discharge": discharge,
         "scenarios": scen_payload,
+        "surrogate": _load_surrogate(config.ACTIVE_CASE),
     }
 
     html = _TEMPLATE
@@ -131,6 +132,17 @@ def _render_html(scenarios, elevation, cell_size, terrain_source,
             ("__ORBIT_JS__", _read_cache("OrbitControls.js"))):
         html = html.replace(key, value)
     return html
+
+
+def _load_surrogate(case):
+    """Per-pixel polynomial surrogate exported by surrogate_baselines.py, if
+    one exists for this case. None otherwise — the viewer must not show the
+    ML-preview panel at all when there isn't a fitted, validated one."""
+    path = os.path.join("assets", "surrogate", f"{case}.json")
+    if not os.path.exists(path):
+        return None
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
 
 
 def _focus_rc(decisions, rows, cols):
@@ -539,6 +551,21 @@ __FONTS_CSS__
   .llab { display: flex; justify-content: space-between;
     color: var(--dimmer); font-family: var(--fm); font-size: 9px;
     margin-top: 3px; letter-spacing: .5px; }
+  #mlpanel .vh { display: flex; justify-content: space-between;
+    align-items: center; }
+  #mlToggle { font-family: var(--fm); font-size: 9px; letter-spacing: 1px;
+    padding: 3px 9px; border-radius: 10px; border: 1px solid var(--line2);
+    background: none; color: var(--dim); cursor: pointer; }
+  #mlToggle.on { color: #03141b; background: var(--yellow);
+    border-color: transparent; }
+  #mlbody label { display: block; color: var(--dim); font-size: 11px;
+    margin-top: 8px; }
+  #mlbody label b { color: var(--text); float: right; font-weight: 600; }
+  #mlbody input[type=range] { width: 100%; margin-top: 3px;
+    accent-color: var(--yellow); }
+  #mlStats { margin-top: 8px; flex-direction: column; gap: 2px; }
+  #mlNote { color: var(--dimmer); font-size: 9.5px; line-height: 1.4;
+    margin-top: 6px; white-space: normal; }
 
   /* ---------- HUD bottom right ---------- */
   #scale { position: absolute; right: 22px; bottom: 88px; text-align: right; }
@@ -643,6 +670,18 @@ __FONTS_CSS__
     <div id="legendArr" style="display:none"><div class="lbar"></div>
       <div class="llab"><span>floods first</span><span>floods last</span></div>
     </div>
+  </div>
+</div>
+
+<div id="mlpanel" class="panel" style="display:none">
+  <div class="vh">ML instant preview <button id="mlToggle">OFF</button></div>
+  <div id="mlbody" style="display:none">
+    <label>Rain total <b id="mlRainLab"></b>
+      <input type="range" id="mlRain" min="0" max="100" value="25"></label>
+    <label>River excess <b id="mlRiverLab"></b>
+      <input type="range" id="mlRiver" min="0" max="100" value="25"></label>
+    <div id="mlStats" class="src"></div>
+    <div id="mlNote" class="src"></div>
   </div>
 </div>
 
