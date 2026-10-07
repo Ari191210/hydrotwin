@@ -1,8 +1,8 @@
 # HydroTwin — physics-informed flood prediction
 
-Simulates a flood over real terrain with 2D shallow-water physics
-(Landlab `OverlandFlow`), driven by live rainfall and live river-discharge
-data, turns the result into evacuation decisions with Claude, and renders it
+Team project. Physics-informed flood digital twin: live terrain, rainfall and
+river-discharge data drive a 2D shallow-water sim (Landlab `OverlandFlow`),
+which turns into evacuation decisions with Claude, and renders it
 in an interactive 3D viewer — for **any location on Earth**.
 
 ## Run — live server (any location)
