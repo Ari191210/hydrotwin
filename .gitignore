@@ -7,3 +7,4 @@ outputs/
 outputs/_*
 outputs/*.log
 assets/glofas_cache.json
+assets/imagery/

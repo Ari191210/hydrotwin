@@ -31,15 +31,20 @@ PRIORITY_TINT = {"immediate": (239, 83, 80), "high": (255, 152, 0),
 
 def make_3d_viewer(scenarios, elevation, cell_size, terrain_source,
                    discharge=None, river=None, path=None, live=False,
-                   issued_at=None, write=True):
+                   issued_at=None, write=True, imagery=None,
+                   water_mask=None):
     """scenarios: list of dicts from scenarios.run_all (label, mult, whatif,
     rain_source, times, depths, rain_series, decisions, decision_source,
     is_default). river: one-line river-inflow source label.
+    imagery: north-up PIL image draped on the terrain (None = relief).
+    water_mask: bool grid (row 0 = south) of permanent river/lake cells,
+    excluded from flooded-area figures.
 
     write=True saves to `path` and returns the path (build mode).
     write=False returns the HTML string (server mode)."""
     html = _render_html(scenarios, elevation, cell_size, terrain_source,
-                        discharge, river, live, issued_at)
+                        discharge, river, live, issued_at, imagery,
+                        water_mask)
     if not write:
         return html
     path = path or os.path.join(config.OUTPUT_DIR, "flood_3d.html")
@@ -53,9 +58,12 @@ def make_3d_viewer(scenarios, elevation, cell_size, terrain_source,
 
 
 def _render_html(scenarios, elevation, cell_size, terrain_source,
-                 discharge, river, live, issued_at):
+                 discharge, river, live, issued_at, imagery, water_mask):
     rows, cols = elevation.shape
     elev_north = np.flipud(elevation)  # viewer works north-row-first
+    base = _base_image(elev_north, imagery)
+    mask_north = (np.flipud(water_mask) if water_mask is not None
+                  else np.zeros(elevation.shape, bool))
     elev_b64 = base64.b64encode(elev_north.astype("<f4").tobytes()).decode()
 
     default_index = next(i for i, s in enumerate(scenarios) if s["is_default"])
@@ -82,9 +90,9 @@ def _render_html(scenarios, elevation, cell_size, terrain_source,
             "focusRc": _focus_rc(dec, rows, cols),
             "depthsB64": base64.b64encode(
                 depth_cm.astype("<u2").tobytes()).decode(),
-            "texZones": _zones_texture(elev_north, dec),
-            "texArrival": _arrival_texture(elev_north, depths_north,
-                                           s["times"]),
+            "texZones": _zones_texture(base, dec),
+            "texArrival": _arrival_texture(base, depths_north, s["times"],
+                                           mask_north),
         })
 
     payload = {
@@ -103,6 +111,9 @@ def _render_html(scenarios, elevation, cell_size, terrain_source,
         "terrainSource": terrain_source,
         "terrainSynthetic": terrain_source.startswith("synthetic"),
         "riverSource": river or "not modelled at this location (rain only)",
+        "imagerySource": imagery_source(imagery),
+        "waterMaskB64": base64.b64encode(
+            mask_north.astype(np.uint8).tobytes()).decode(),
         "popDensity": config.POP_DENSITY_KM2,
         "floodDepthM": config.FLOOD_DEPTH_M,
         "durationHr": config.SIM_DURATION_HR,
@@ -114,7 +125,7 @@ def _render_html(scenarios, elevation, cell_size, terrain_source,
     for key, value in (
             ("__PAYLOAD__", json.dumps(payload)),
             ("__ELEV_B64__", elev_b64),
-            ("__TEX_BASE__", _terrain_texture(elev_north)),
+            ("__TEX_BASE__", _to_data_uri(base, jpeg=imagery is not None)),
             ("__FONTS_CSS__", _read_cache("fonts_inline.css")),
             ("__THREE_JS__", _read_cache("three.min.js")),
             ("__ORBIT_JS__", _read_cache("OrbitControls.js"))):
@@ -158,20 +169,39 @@ def _shade_rgb(elev_north):
     return (np.clip(rgb[..., :3], 0, 1) * 255).astype(np.uint8)
 
 
-def _to_data_uri(img):
+def _to_data_uri(img, jpeg=False):
     buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+    if jpeg:
+        img.convert("RGB").save(buf, format="JPEG", quality=86)
+        mime = "jpeg"
+    else:
+        img.save(buf, format="PNG")
+        mime = "png"
+    return f"data:image/{mime};base64," + \
+        base64.b64encode(buf.getvalue()).decode()
 
 
-def _terrain_texture(elev_north, size=512):
+def imagery_source(imagery):
+    import imagery as imagery_mod
+    return imagery_mod.ATTRIBUTION if imagery is not None else \
+        "shaded relief from the DEM (satellite imagery unavailable)"
+
+
+def _base_image(elev_north, imagery, max_px=2048):
+    """Square-ish north-up RGB base map: satellite if we have it, otherwise
+    the shaded-relief rendering of the DEM."""
+    if imagery is not None:
+        img = imagery.convert("RGB")
+        if max(img.size) > max_px:
+            img.thumbnail((max_px, max_px), Image.LANCZOS)
+        return img
     img = Image.fromarray(_shade_rgb(elev_north), "RGB")
-    return _to_data_uri(img.resize((size, size), Image.BICUBIC))
+    return img.resize((1024, 1024), Image.BICUBIC)
 
 
-def _zones_texture(elev_north, decisions, size=512):
-    img = Image.fromarray(_shade_rgb(elev_north), "RGB") \
-        .resize((size, size), Image.BICUBIC).convert("RGBA")
+def _zones_texture(base, decisions, size=1024):
+    img = base.resize((size, size), Image.BICUBIC).convert("RGBA")
+    img = Image.blend(img, Image.new("RGBA", img.size, (6, 10, 16, 255)), .35)
     overlay = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
     evac = {e["zone"]: e for e in decisions.get("evacuation_zones", [])}
@@ -189,28 +219,33 @@ def _zones_texture(elev_north, decisions, size=512):
                 draw.rectangle(box, outline=(255, 255, 255, 60), width=1)
             draw.text((box[0] + 8, box[1] + 6), name,
                       fill=(255, 255, 255, 200))
-    return _to_data_uri(Image.alpha_composite(img, overlay).convert("RGB"))
+    return _to_data_uri(Image.alpha_composite(img, overlay).convert("RGB"),
+                        jpeg=True)
 
 
-def _arrival_texture(elev_north, depths_north, times, size=512):
+def _arrival_texture(base, depths_north, times, water_mask, size=1024):
     """Hours until each cell first floods (>= FLOOD_DEPTH_M), plasma-colored
-    over the hillshade; cells that never flood stay dim terrain."""
-    hours = np.full(elev_north.shape, np.nan)
+    over the dimmed base map; permanent water and cells that never flood
+    stay dim."""
+    rows, cols = depths_north[0].shape
+    hours = np.full((rows, cols), np.nan)
     for t, d in zip(times, depths_north):
         newly = (d >= config.FLOOD_DEPTH_M) & np.isnan(hours)
         hours[newly] = t / 3600.0
-    shade = _shade_rgb(elev_north).astype(float)
-    dim = shade * 0.45
-    out = dim.copy()
+    hours[water_mask] = np.nan
+    rgba = np.zeros((rows, cols, 4), np.uint8)
     flooded = ~np.isnan(hours)
     if flooded.any():
-        norm = np.clip(hours / max(config.SIM_DURATION_HR, 1e-6), 0, 1)
-        colors = (cm.plasma(1.0 - norm)[..., :3] * 255)  # early = bright
-        alpha = 0.85
-        out[flooded] = (colors[flooded] * alpha
-                        + dim[flooded] * (1 - alpha))
-    img = Image.fromarray(out.astype(np.uint8), "RGB")
-    return _to_data_uri(img.resize((size, size), Image.BICUBIC))
+        span = max(times[-1] / 3600.0, 1e-6)
+        norm = np.clip(hours / span, 0, 1)
+        colors = cm.plasma(1.0 - norm)                    # early = bright
+        rgba[flooded, :3] = (colors[flooded, :3] * 255).astype(np.uint8)
+        rgba[flooded, 3] = 215
+    over = Image.fromarray(rgba, "RGBA").resize((size, size), Image.NEAREST)
+    img = base.resize((size, size), Image.BICUBIC).convert("RGBA")
+    img = Image.blend(img, Image.new("RGBA", img.size, (6, 10, 16, 255)), .5)
+    return _to_data_uri(Image.alpha_composite(img, over).convert("RGB"),
+                        jpeg=True)
 
 
 # ------------------------------------------------------------- template ----
@@ -1215,6 +1250,7 @@ function renderHonesty() {
 function renderSources() {
   document.getElementById("sources").innerHTML =
     "<div class='src'><em>terrain</em><b>" + P.terrainSource + "</b></div>" +
+    "<div class='src'><em>imagery</em><b>" + P.imagerySource + "</b></div>" +
     "<div class='src'><em>rainfall</em><b>" + SC.rainSource +
     (SC.mult !== 1 ? " &times; " + SC.mult : "") + "</b></div>" +
     "<div class='src'><em>river</em><b>" + P.riverSource + "</b></div>" +

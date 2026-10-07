@@ -18,7 +18,9 @@ import numpy as np
 
 import config
 import flooddata
+import imagery
 import rainfall
+import river
 import scenarios as scen
 import terrain
 import viewer3d
@@ -68,6 +70,10 @@ def simulate_location(lat, lon, title=None, pop_density=None,
         say("fetching terrain", 12)
         elevation, cell_size, terrain_source = terrain.load_terrain()
 
+        say("fetching satellite imagery", 20)
+        sat = imagery.get_imagery()
+        water_mask = river.water_mask(elevation, cell_size)
+
         say("placing points of interest", 30)
         pois = _fetch_pois(lat, lon, elevation, cell_size)
         config.POIS = pois
@@ -88,7 +94,8 @@ def simulate_location(lat, lon, title=None, pop_density=None,
         html = viewer3d.make_3d_viewer(
             scenarios, elevation, cell_size, terrain_source,
             discharge=discharge, river=river_label, live=True,
-            issued_at=issued_at, write=False)
+            issued_at=issued_at, write=False, imagery=sat,
+            water_mask=water_mask)
 
         default = next(s for s in scenarios if s["is_default"])
         rain_source = default["rain_source"]

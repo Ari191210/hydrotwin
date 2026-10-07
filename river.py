@@ -101,3 +101,61 @@ def excess_from_glofas(discharge):
         f"cached {discharge['fetched_at'][:10]}"
     return max(best, 0.0), (f"GloFAS {tag}: {q:.0f} m3/s, {max(best, 0):.0f} "
                             f"above the {med:.0f} m3/s seasonal median")
+
+
+def water_mask(elevation, cell_size, pad_m=0.0):
+    """Bool grid (row 0 = south, same orientation as elevation) marking
+    permanent river/lake surface, from OSM `natural=water`/`water=river`
+    polygons and `waterway=river` centrelines (buffered by one cell plus
+    pad_m). False (no mask) on any fetch failure — callers should treat
+    that as 'nothing excluded', not 'no water here'."""
+    rows, cols = elevation.shape
+    mask = np.zeros((rows, cols), dtype=bool)
+    try:
+        import requests
+        from PIL import Image, ImageDraw
+
+        half_lat = rows * cell_size / 2.0 / 111_320.0
+        half_lon = cols * cell_size / 2.0 / (
+            111_320.0 * np.cos(np.radians(config.BASIN_LAT)))
+        s, n = config.BASIN_LAT - half_lat, config.BASIN_LAT + half_lat
+        w, e = config.BASIN_LON - half_lon, config.BASIN_LON + half_lon
+        q = (f'[out:json][timeout:25];('
+             f'way["natural"="water"]({s},{w},{n},{e});'
+             f'way["water"="river"]({s},{w},{n},{e});'
+             f'way["waterway"="river"]({s},{w},{n},{e});'
+             f');out geom;')
+        r = requests.post("https://overpass-api.de/api/interpreter",
+                          data={"data": q},
+                          headers={"User-Agent": "HydroTwin/1.0 flood-demo"},
+                          timeout=(5, 30))
+        r.raise_for_status()
+        img = Image.new("L", (cols, rows), 0)
+        draw = ImageDraw.Draw(img)
+        buf_cells = max(1, int(round((cell_size / 2.0 + pad_m) / cell_size)))
+        found = False
+        for el in r.json().get("elements", []):
+            geom = el.get("geometry")
+            if not geom:
+                continue
+            pts = [terrain.latlon_to_rc(p["lat"], p["lon"], rows, cols)
+                   for p in geom]
+            pts = [(c, rows - 1 - row) for row, c in
+                   (p for p in pts if p is not None)]   # PIL y-down -> north-up row
+            if len(pts) < 2:
+                continue
+            found = True
+            if el.get("tags", {}).get("waterway") == "river" and \
+                    el.get("tags", {}).get("natural") != "water":
+                draw.line(pts, fill=255, width=buf_cells * 2)
+            else:
+                draw.polygon(pts, fill=255)
+        if found:
+            mask = np.flipud(np.asarray(img, dtype=bool))  # back to row-0=south
+            print(f"[river] water mask: {int(mask.sum())} cells from OSM")
+        else:
+            print("[river] no OSM water features in frame -> no mask")
+    except Exception as exc:
+        print(f"[river] water mask fetch failed ({type(exc).__name__}: "
+              f"{exc}) -> no mask")
+    return mask

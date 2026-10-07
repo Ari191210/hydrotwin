@@ -27,7 +27,9 @@ def run_case(name):
           f"storm {config.SIM_DURATION_HR} h")
     print("=" * 64)
 
+    import imagery
     import rainfall
+    import river
     import scenarios as scen
     import simulate
     import terrain
@@ -38,6 +40,8 @@ def run_case(name):
 
     elevation, cell_size, terrain_source = terrain.load_terrain()
     config.POIS = scen.resolve_pois(config.POIS, elevation.shape)
+    sat = imagery.get_imagery()
+    water_mask = river.water_mask(elevation, cell_size)
     rain = rainfall.get_rainfall()
     discharge = flooddata.get_river_discharge()
     inflow, q_in, river_label = scen.river_inflow(elevation, cell_size,
@@ -64,7 +68,8 @@ def run_case(name):
     try:
         viewer_path = viewer3d.make_3d_viewer(
             scenarios, elevation, cell_size, terrain_source,
-            discharge=discharge, river=river_label)
+            discharge=discharge, river=river_label, imagery=sat,
+            water_mask=water_mask)
     except Exception as exc:
         print(f"[viewer3d] 3D viewer failed ({type(exc).__name__}: {exc}) "
               f"— 2D map + animation still produced")
