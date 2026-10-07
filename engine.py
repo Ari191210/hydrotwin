@@ -120,7 +120,15 @@ def simulate_location(lat, lon, title=None, pop_density=None,
             "elev_range": [round(float(elevation.min())),
                            round(float(elevation.max()))],
         }
-        result = {"html": html, "summary": summary}
+        # pois + a mutable copy of the default decisions let field reports
+        # (laya_layer) escalate zones later without re-running the physics
+        result = {"html": html, "summary": summary,
+                  "pois": [dict(p) for p in default["decisions"]["pois"]],
+                  "evac_zones": [dict(z) for z in
+                                 default["decisions"]["evacuation_zones"]],
+                  "zone_names": sorted(z["zone"] for z in
+                                       default["decisions"]["zone_stats"]),
+                  "reports": []}
 
         if len(_CACHE) >= _CACHE_MAX:
             _CACHE.pop(next(iter(_CACHE)))

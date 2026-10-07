@@ -18,6 +18,7 @@ from flask import Flask, jsonify, request, Response
 from flask_cors import CORS
 
 import engine
+import laya_layer
 from shell import SHELL_HTML
 
 app = Flask(__name__)
@@ -25,6 +26,7 @@ CORS(app)
 
 _JOBS = {}          # job_id -> {status, stage, pct, html?, summary?, error?}
 _JOBS_LOCK = threading.Lock()
+_REPORT_LOCK = threading.Lock()
 
 
 @app.route("/")
@@ -144,6 +146,56 @@ def job_status(jid):
     return jsonify(out)
 
 
+@app.route("/api/laya/status")
+def laya_status():
+    return jsonify(laya_layer.status())
+
+
+@app.route("/api/report", methods=["POST"])
+def report():
+    """Triage a free-text field report with Laya and escalate-only fuse it
+    into the cached forecast for (lat, lon). Never takes the physics lock,
+    so reports stay fast while a simulation runs."""
+    data = request.get_json(force=True, silent=True) or {}
+    try:
+        lat, lon = float(data["lat"]), float(data["lon"])
+        text = str(data["text"]).strip()[:600]
+    except (KeyError, ValueError, TypeError):
+        return jsonify({"error": "lat, lon & text required"}), 400
+    if not text:
+        return jsonify({"error": "empty report"}), 400
+    run = engine.get_cached(lat, lon)
+    if not run:
+        return jsonify({"error": "run a forecast for this location first"}), 409
+    try:
+        r = laya_layer.triage(text, run["pois"])
+    except RuntimeError as exc:
+        return jsonify({"error": str(exc), "laya": laya_layer.status()}), 503
+
+    zone = data.get("zone")
+    if zone in run["zone_names"]:           # operator placed it on the map
+        r["zone"], r["poi"] = zone, None
+    with _REPORT_LOCK:
+        r["escalation"] = laya_layer.fuse(run["evac_zones"], r)
+        run["reports"].insert(0, r)
+        del run["reports"][50:]
+        return jsonify({"report": r, "evac_zones": run["evac_zones"],
+                        "zone_names": run["zone_names"]})
+
+
+@app.route("/api/reports")
+def reports():
+    try:
+        lat, lon = float(request.args["lat"]), float(request.args["lon"])
+    except (KeyError, ValueError):
+        return jsonify({"error": "lat & lon required"}), 400
+    run = engine.get_cached(lat, lon)
+    if not run:
+        return jsonify({"reports": [], "evac_zones": [], "zone_names": []})
+    return jsonify({"reports": run["reports"], "evac_zones": run["evac_zones"],
+                    "zone_names": run["zone_names"]})
+
+
 @app.route("/api/presets")
 def presets():
     import config
@@ -158,4 +210,5 @@ if __name__ == "__main__":
     print("  open http://localhost:8000 in your browser")
     print("  type any city or 'lat,lon' -> live flood forecast")
     print("=" * 60)
+    laya_layer.start_loading()      # ~60 s on CPU, in the background
     app.run(host="0.0.0.0", port=8000, threaded=True, debug=False)

@@ -129,6 +129,50 @@ html,body{height:100%;overflow:hidden;color:var(--text);font:14px/1.5 var(--fd);
 #err{color:var(--red);font-family:var(--fm);font-size:12px;margin-top:14px;
   display:none;}
 
+/* field reports (Laya triage) */
+#rpbtn{background:var(--panel);border:1px solid var(--line2);color:var(--text);
+  border-radius:10px;padding:9px 14px;font:inherit;font-size:13px;cursor:pointer;
+  backdrop-filter:blur(12px);white-space:nowrap;display:none;}
+#rpbtn:hover,#rpbtn[aria-expanded="true"]{border-color:var(--accent);color:var(--accent);}
+#rpbtn b{font-family:var(--fm);font-weight:600;margin-left:6px;color:var(--dim);}
+#reports{position:absolute;top:72px;right:20px;z-index:22;
+  width:min(360px,calc(100vw - 32px));max-height:calc(100vh - 150px);
+  display:none;flex-direction:column;background:var(--panel);
+  border:1px solid var(--line2);border-radius:12px;backdrop-filter:blur(12px);
+  box-shadow:0 12px 40px rgba(0,0,0,.55);}
+#reports.open{display:flex;}
+#reports header{padding:14px 16px 10px;border-bottom:1px solid var(--line);}
+#reports h2{font-size:10px;letter-spacing:2px;text-transform:uppercase;
+  color:var(--dim);font-weight:600;}
+#layast{font-family:var(--fm);font-size:11px;color:var(--dimmer);margin-top:4px;}
+#layast.ready{color:var(--safe);}
+#rpform{padding:12px 16px;border-bottom:1px solid var(--line);}
+#rptext{width:100%;min-height:64px;resize:vertical;background:rgba(0,0,0,.25);
+  border:1px solid var(--line2);border-radius:8px;padding:9px 11px;
+  color:var(--text);font:inherit;font-size:13px;}
+#rptext:focus{outline:2px solid var(--accent);outline-offset:1px;}
+#rprow{display:flex;gap:8px;margin-top:8px;align-items:center;}
+#rpzone{background:rgba(0,0,0,.25);border:1px solid var(--line2);color:var(--text);
+  border-radius:8px;padding:7px 8px;font:inherit;font-size:12px;}
+#rpsend{margin-left:auto;background:var(--accent);color:#04121a;border:0;
+  border-radius:8px;padding:8px 14px;font:inherit;font-size:13px;font-weight:600;
+  cursor:pointer;}
+#rpsend:disabled{opacity:.45;cursor:default;}
+#rperr{color:var(--orange);font-family:var(--fm);font-size:11px;margin-top:6px;}
+#rplist{overflow-y:auto;padding:6px 0;}
+.rp{padding:10px 16px;border-bottom:1px solid var(--line);font-size:12.5px;}
+.rp:last-child{border-bottom:0;}
+.rp q{display:block;color:var(--text);quotes:none;margin-bottom:6px;}
+.rp .tags{display:flex;flex-wrap:wrap;gap:5px;}
+.rp .t{font-family:var(--fm);font-size:10px;padding:2px 7px;border-radius:20px;
+  background:rgba(148,178,215,.1);color:var(--dim);}
+.rp .t.immediate{background:rgba(255,92,87,.16);color:var(--red);}
+.rp .t.high{background:rgba(255,171,64,.14);color:var(--orange);}
+.rp .t.monitor{background:rgba(255,213,79,.12);color:#ffd54f;}
+.rp .meta{font-family:var(--fm);font-size:10px;color:var(--dimmer);margin-top:6px;}
+.rp .esc{color:var(--accent);font-family:var(--fm);font-size:11px;margin-top:5px;}
+.rpempty{padding:14px 16px;color:var(--dimmer);font-size:12px;}
+
 @media (prefers-reduced-motion:reduce){
   #frame,#overlay,#progbar{transition:none;}#livedot{animation:none;}}
 </style>
@@ -156,7 +200,24 @@ html,body{height:100%;overflow:hidden;color:var(--text);font:14px/1.5 var(--fd);
     <div class="sep"></div>
     <div><div class="ld">live risk</div><b id="crisk" class="risk">--</b></div>
   </div>
+  <button id="rpbtn" aria-expanded="false" aria-controls="reports">Field reports<b id="rpcount">0</b></button>
 </div>
+
+<section id="reports" aria-label="Field reports">
+  <header>
+    <h2>Field reports &middot; Laya triage</h2>
+    <div id="layast">checking model…</div>
+  </header>
+  <form id="rpform">
+    <textarea id="rptext" maxlength="600" placeholder="Paste a report in any language, e.g. &quot;पानी बढ़ रहा है, बच्चे फंसे हैं&quot;"></textarea>
+    <div id="rprow">
+      <select id="rpzone" aria-label="Zone"><option value="">zone: auto</option></select>
+      <button id="rpsend" type="submit">Triage</button>
+    </div>
+    <div id="rperr"></div>
+  </form>
+  <div id="rplist"><div class="rpempty">No reports yet. Reports can raise a zone's priority, never lower what the physics says.</div></div>
+</section>
 
 <div id="overlay">
   <div id="ov">
@@ -313,6 +374,7 @@ function loadResult(jid,lat,lon,title,summary){
       frame.onload=function(){
         frame.classList.add("on");
         document.getElementById("overlay").classList.add("hide");
+        loadReports();
       };
       frame.srcdoc=j.html;
       curLoc={lat:lat,lon:lon};
@@ -348,6 +410,78 @@ fetch(API+"/api/presets").then(function(r){return r.json();})
       el.appendChild(b);
     });
   }).catch(function(){});
+
+// ---------- field reports (Laya) ----------
+var rpbtn=document.getElementById("rpbtn"), rpanel=document.getElementById("reports");
+var rpzone=document.getElementById("rpzone"), rpsend=document.getElementById("rpsend");
+function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){
+  return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];});}
+rpbtn.addEventListener("click",function(){
+  var open=!rpanel.classList.contains("open");
+  rpanel.classList.toggle("open",open);
+  rpbtn.setAttribute("aria-expanded",String(open));
+  if(open)document.getElementById("rptext").focus();
+});
+function pollLaya(){
+  fetch(API+"/api/laya/status").then(function(r){return r.json();})
+    .then(function(s){
+      var el=document.getElementById("layast");
+      el.className=s.state==="ready"?"ready":"";
+      el.textContent={ready:"model ready · ",loading:"loading model… ",
+        unavailable:"unavailable · ",idle:"not started"}[s.state]+(s.state==="idle"?"":s.detail);
+      if(s.state==="loading")setTimeout(pollLaya,3000);
+    }).catch(function(){});
+}
+pollLaya();
+function pushZones(z){
+  var f=document.getElementById("frame");
+  if(f.contentWindow)f.contentWindow.postMessage({type:"hydrotwin:zones",evacZones:z},"*");
+}
+function renderReports(d){
+  var list=document.getElementById("rplist");
+  document.getElementById("rpcount").textContent=d.reports.length;
+  var keep=rpzone.value;
+  rpzone.innerHTML='<option value="">zone: auto</option>'+d.zone_names.map(function(z){
+    return '<option value="'+esc(z)+'">'+esc(z)+'</option>';}).join("");
+  rpzone.value=keep;
+  if(!d.reports.length){list.innerHTML='<div class="rpempty">No reports yet. Reports can raise a zone\'s priority, never lower what the physics says.</div>';return;}
+  list.innerHTML=d.reports.map(function(r){
+    var tags='<span class="t">'+esc(r.need)+' '+Math.round(r.need_confidence*100)+'%</span>'+
+      (r.severity?'<span class="t '+esc(r.severity)+'">'+esc(r.severity)+'</span>':'')+
+      '<span class="t">urgency '+r.urgency.toFixed(1)+'/2</span>'+
+      r.flags.map(function(f){return '<span class="t">'+esc(f)+'</span>';}).join("")+
+      (r.zone?'<span class="t">zone '+esc(r.zone)+(r.poi?' · '+esc(r.poi):'')+'</span>':
+        '<span class="t">no zone'+(r.suggested_poi?' · maybe '+esc(r.suggested_poi):'')+'</span>');
+    var e=r.escalation;
+    return '<div class="rp"><q>'+esc(r.text)+'</q><div class="tags">'+tags+'</div>'+
+      (e?'<div class="esc">'+esc(e.zone)+': '+esc(e.from||"no action")+' → '+esc(e.to)+'</div>':'')+
+      '<div class="meta">'+esc(r.model)+' checkpoint · '+r.ms+' ms · '+esc(r.routing_reason)+'</div></div>';
+  }).join("");
+}
+function loadReports(){
+  if(!curLoc)return;
+  rpbtn.style.display="inline-block";
+  fetch(API+"/api/reports?lat="+curLoc.lat+"&lon="+curLoc.lon)
+    .then(function(r){return r.json();})
+    .then(function(d){renderReports(d);if(d.reports.length)pushZones(d.evac_zones);})
+    .catch(function(){});
+}
+document.getElementById("rpform").addEventListener("submit",function(e){
+  e.preventDefault();
+  var text=document.getElementById("rptext").value.trim(), err=document.getElementById("rperr");
+  if(!text||!curLoc)return;
+  rpsend.disabled=true; rpsend.textContent="Reading…"; err.textContent="";
+  fetch(API+"/api/report",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({lat:curLoc.lat,lon:curLoc.lon,text:text,zone:rpzone.value||null})})
+    .then(function(r){return r.json();})
+    .then(function(d){
+      if(d.error){err.textContent=d.error;return;}
+      document.getElementById("rptext").value="";
+      pushZones(d.evac_zones);
+      loadReports();
+    }).catch(function(x){err.textContent=String(x);})
+    .then(function(){rpsend.disabled=false;rpsend.textContent="Triage";});
+});
 
 search.focus();
 </script>

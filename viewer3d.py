@@ -1113,6 +1113,24 @@ hydroCv.addEventListener("mousemove", function (e) {
   if (e.buttons === 1) setFrame(hydroFrame(e));   // 1:1 while dragging
 });
 
+// ---- field reports (live server): the shell posts escalate-only zone
+// updates triaged by Laya; they apply to the default storm scenario.
+window.addEventListener("message", function (e) {
+  var m = e.data;
+  if (!m || m.type !== "hydrotwin:zones" || !Array.isArray(m.evacZones)) return;
+  P.scenarios[P.defaultIndex].evacZones = m.evacZones;
+  if (cur === P.defaultIndex) {
+    document.getElementById("stZones").textContent = SC.evacZones.length;
+    renderZones();
+  }
+});
+
+function escHtml(s) {
+  return String(s).replace(/[&<>"']/g, function (c) {
+    return {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c];
+  });
+}
+
 // ---- panel renderers
 function renderZones() {
   var el = document.getElementById("zones");
@@ -1122,9 +1140,10 @@ function renderZones() {
   SC.evacZones.slice(0, 6).forEach(function (z) {
     var div = document.createElement("div");
     div.className = "zrow " + z.priority;
-    div.innerHTML = "<span class='zid'>" + z.zone + "</span>" +
-      "<span class='chip " + z.priority + "'>" + z.priority + "</span>" +
-      "<span class='zreason'>" + z.reason + "</span>";
+    div.innerHTML = "<span class='zid'>" + escHtml(z.zone) + "</span>" +
+      "<span class='chip " + escHtml(z.priority) + "'>" +
+      escHtml(z.priority) + "</span>" +
+      "<span class='zreason'>" + escHtml(z.reason) + "</span>";
     el.appendChild(div);
   });
   if (SC.evacZones.length > 6) {

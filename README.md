@@ -95,8 +95,33 @@ depth thresholds, POIs, and `RAIN_MULTIPLIER` if you want a bigger show.
 
 ```bash
 py -3.13 -m venv .venv
-.venv/Scripts/python -m pip install landlab numpy scipy matplotlib requests folium anthropic imageio imageio-ffmpeg pillow
+.venv/Scripts/python -m pip install landlab numpy scipy matplotlib requests folium anthropic imageio imageio-ffmpeg pillow flask flask-cors
+# field reports (Laya), CPU-only torch keeps the install small
+.venv/Scripts/python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+.venv/Scripts/python -m pip install -e ../laya
 ```
+
+## Field reports (Laya), live server only
+
+The physics can't read what people on the ground are saying, so the live console
+has a **Field reports** drawer. Paste a message in any language and
+[Laya](https://github.com/NandhaKishorM/laya) (`laya_layer.py`) triages it in one
+forward pass: need (rescue / medical / supplies / infrastructure / observation /
+irrelevant), urgency, trapped / rising / vulnerable flags, and the mapped place it
+names. Its Router sends English to the English checkpoint and other scripts or
+languages to the multilingual one.
+
+- **Escalate only:** a report can raise a zone's priority and never lower what the
+  physics says. Only an exact POI-name match (or the officer's zone pick) places a
+  report; Laya's own place guess is shown as a suggestion.
+- The model loads in the background at server start (~65 s on CPU) with
+  `HF_HUB_OFFLINE=1`, so the checkpoints must already be in the Hugging Face cache.
+  Until then the drawer says so and everything else works.
+- Reports update the zone list in the viewer, but not the baked 3D zone tint or
+  route arrows.
+- `eval_laya.py` runs 12 hand-labelled reports (English, Hindi, Hinglish,
+  Vietnamese). The severity thresholds were tuned on these same cases, so treat
+  its score as a sanity check, not a held-out accuracy.
 
 ## Module map
 
