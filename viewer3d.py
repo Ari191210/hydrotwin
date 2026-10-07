@@ -1350,7 +1350,7 @@ if (P.discharge) {
   var chip = document.getElementById("riverchip");
   var pct = D.pct_of_median;
   chip.textContent = (pct >= 0 ? "+" : "") + pct.toFixed(0) +
-    "% vs seasonal median";
+    "% vs 1995–2024 normal for this date";
   chip.className = Math.abs(pct) > 15 ? "abnormal" : "normal";
   var barsEl = document.getElementById("riverbars");
   var dmax = Math.max.apply(null, D.discharge.concat([1]));
@@ -1359,7 +1359,7 @@ if (P.discharge) {
     b.style.height = Math.max(v / dmax * 100, 8) + "%";
     if (i === 0) b.className = "today";
     b.title = D.days[i] + ": " + Math.round(v).toLocaleString("en") +
-      " m³/s (median " + Math.round(D.median[i]).toLocaleString("en") + ")";
+      " m³/s (1995–2024 median " + Math.round(D.median[i]).toLocaleString("en") + ")";
     b.innerHTML = "<i>" + D.days[i].slice(8) + "</i>";
     barsEl.appendChild(b);
   });

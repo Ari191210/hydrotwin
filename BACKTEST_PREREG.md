@@ -26,17 +26,17 @@ hydraulics, not a rainfall or discharge forecast.
 
 ## Scoring sites (OSM Nominatim coordinates, see config.py)
 
-| Group | Site | lat, lon | Expected by the model |
+| Group | Site | lat, lon | Observed in 2023 |
 |---|---|---|---|
 | A: overbank, scored | Yamuna Bazar | 28.6620, 77.2394 | flooded |
 | A: overbank, scored | Kashmere Gate ISBT | 28.6687, 77.2304 | flooded |
 | A: overbank, scored | Majnu ka Tilla | 28.7043, 77.2245 | flooded |
 | B: mechanism unclear, scored separately | Red Fort (Ring Road) | 28.6561, 77.2408 | flooded |
 | B: mechanism unclear, scored separately | Civil Lines | 28.6807, 77.2226 | flooded |
-| C: drain backflow, NOT expected | ITO | 28.6282, 77.2410 | dry (no drains in model) |
-| C: drain backflow, NOT expected | Raj Ghat | 28.6442, 77.2498 | dry (no drains in model) |
-| D: control, should stay dry | Connaught Place | 28.6318, 77.2194 | dry |
-| D: control, should stay dry | DU North Campus (Faculty of Arts area) | 28.6925, 77.2182 | dry |
+| C: drain backflow, outside the model | ITO | 28.6282, 77.2410 | flooded (via drain 12) |
+| C: drain backflow, outside the model | Raj Ghat | 28.6442, 77.2498 | flooded (via drain 12) |
+| D: control | Connaught Place | 28.6318, 77.2194 | dry |
+| D: control | DU North Campus (Faculty of Arts area) | 28.6925, 77.2182 | dry |
 
 The headline score is group A (x of 3), plus group D (false alarms, x of 2).
 Group B is reported separately. Group C is reported as "outside what the
@@ -47,9 +47,10 @@ model can represent". If the model floods C overland, that gets reported too.
 A site counts as **flooded** if any cell within **250 m** (Chebyshev,
 `ceil(250 / cell_size)` cells) of its snapped grid cell reaches water depth
 **>= 0.30 m** (`FLOOD_DEPTH_M`) at any saved time in the run, **excluding
-cells inside the main river channel**. The channel mask is the set of cells
-already wet (>= 0.30 m) in a run at the seasonal-median flow (zero excess
-inflow) with no rain.
+cells inside the main river channel**. The channel mask is the OSM Yamuna
+river-area polygon (`natural=water` + `water=river`) rasterized to the grid,
+plus the `waterway=river` centreline buffered by one cell. It is fixed from
+OSM before the run and does not depend on any model output.
 
 ## Second metric: river stage
 
@@ -65,13 +66,56 @@ elevations at the group A sites are 211-218 m, which is 2.5-9 m above the
 of group A.** If it does, that is the result, and the explanation is the
 DEM, not a reason to change the thresholds.
 
-## Still open (decided and recorded here before the run)
+## Inflow hydrograph (decided 2026-10-07, before any run)
 
-- Inflow hydrograph at the domain's north edge (HKB release series, travel
-  time and attenuation over ~200 km), and its source.
-- Whether a bare-earth DEM (e.g. FABDEM) is used. If it is, both DEM results
-  are reported.
+Delhi's actual discharge in July 2023 is not public in the sources found,
+and a 2-hour peak at HKB attenuates heavily over ~200 km. So:
+
+- **Shape:** the HKB release series, if an hourly or daily series can be
+  sourced. Otherwise a symmetric triangular hydrograph that rises over 48 h
+  and falls over 48 h on top of the seasonal-median baseline.
+- **Magnitude:** the one calibrated number. The peak excess inflow is set so
+  that the modelled peak stage at the ORB cell matches the observed
+  208.66 m (+/- 0.10 m). **ORB stage is therefore a calibration target, not
+  a result,** and will not be reported as model skill.
+- The independent check is the site hit/miss table above.
+- Timing is not scored.
+
+## Terrain-only check (done before any physics run)
+
+Count of DEM cells below 208.66 m within 250 m of each site (SRTM via AWS
+zoom 11; the pipeline's sigma-1.2 smoothing first, raw tile in brackets):
+
+| Site | cells < 208.66 m (of 81) |
+|---|---|
+| Yamuna Bazar | 11 (raw 14) |
+| Kashmere Gate ISBT | 0 (raw 4) |
+| Majnu ka Tilla | 0 (raw 0); local minimum 215.3 m |
+| Red Fort | 0 (raw 0) |
+| Civil Lines | 0 (raw 0) |
+| ITO | 2 (raw 8) |
+| Raj Ghat | 12 (raw 21) |
+| Connaught Place | 0 |
+| DU North Campus | 0 |
+
+On SRTM, with the pipeline as it is, at most 1 of the 3 group A sites
+can flood, whatever the hydraulics do. The river surface slopes up toward
+Majnu ka Tilla (~5 km upstream of ORB, roughly +1 m), but that is still
+~4.5 m below the site's lowest cell.
+
+## DEM
+
+- **Primary:** the pipeline's DEM (SRTM, AWS Terrain Tiles, zoom 11,
+  sigma-1.2 smoothing). It is unchanged for the backtest, so there is no
+  terrain knob to tune.
+- If a bare-earth DEM (FABDEM V1-2, CC BY-NC-SA 4.0) is added, it runs as a
+  second, separately reported result with the same rules. FABDEM is licensed
+  for non-commercial use only, and commercial use needs a Fathom license.
 
 ## Change log
 
-(empty)
+- 2026-10-07, before any run: renamed the table column to "Observed in 2023"
+  (it was "Expected by the model", which contradicted the known-risk
+  section). Replaced the channel mask: the original rule (cells wet at median
+  flow, no inflow, no rain) masks nothing under this design. Recorded the
+  inflow design, the terrain-only check and the DEM policy.
