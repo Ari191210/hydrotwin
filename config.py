@@ -36,17 +36,28 @@ CASES = {
         # Signature Bridge (OSM centreline 28.7100, 77.2314); snapped to the DEM bed
         "inflow": {"lat": 28.710, "lon": 77.2314, "name": "Yamuna"},
         "pop_density_km2": 12000,
-        # POIs by lat/lon (OSM Nominatim, 2026-10-07); snapped to grid cells
+        # POIs by lat/lon (OSM Nominatim, 2026-10-07); snapped to grid cells.
+        # The nine July 2023 backtest sites, same names, order and
+        # coordinates as backtest_delhi.SITES, so the replay scenario and
+        # the forecast scenarios share one set of pins.
         "pois": [
             {"name": "Yamuna Bazar", "type": "road",
              "lat": 28.6620, "lon": 77.2394},
             {"name": "Kashmere Gate ISBT", "type": "road",
              "lat": 28.6687, "lon": 77.2304},
-            {"name": "Majnu ka Tilla", "type": "school",
+            {"name": "Majnu ka Tilla", "type": "road",
              "lat": 28.7043, "lon": 77.2245},
             {"name": "Red Fort (Ring Road)", "type": "road",
              "lat": 28.6561, "lon": 77.2408},
+            {"name": "Civil Lines", "type": "road",
+             "lat": 28.6807, "lon": 77.2226},
             {"name": "ITO", "type": "road", "lat": 28.6282, "lon": 77.2410},
+            {"name": "Raj Ghat", "type": "road",
+             "lat": 28.6442, "lon": 77.2498},
+            {"name": "Connaught Place", "type": "road",
+             "lat": 28.6318, "lon": 77.2194},
+            {"name": "DU North Campus", "type": "school",
+             "lat": 28.6925, "lon": 77.2182},
         ],
     },
     "hue": {

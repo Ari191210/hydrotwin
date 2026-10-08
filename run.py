@@ -64,6 +64,17 @@ def run_case(name):
     # call Claude); the rest are labelled what-ifs.
     scenarios = scen.run_all(scen.plan(rain), elevation, cell_size,
                              inflow, q_in, exclude=exclude, initial=initial)
+    # Delhi only: the saved July 2023 backtest run as one more scenario
+    # (read from disk, nothing simulated; None for every other case)
+    try:
+        import replay
+        past = replay.scenario(elevation, cell_size, exclude)
+    except Exception as exc:
+        past = None
+        print(f"[replay] July 2023 replay SKIPPED "
+              f"({type(exc).__name__}: {exc})")
+    if past is not None:
+        scenarios.append(past)
 
     default = next(s for s in scenarios if s["is_default"])
     rain_source = default["rain_source"]

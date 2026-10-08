@@ -73,13 +73,18 @@ def _render_html(scenarios, elevation, cell_size, terrain_source,
         depth_cm = np.stack(
             [np.clip(d * 100.0, 0, 65535) for d in depths_north])
         dec = s["decisions"]
+        # replay.scenario() only: a past event read from disk. Its rain row
+        # is daily totals and its clock is a calendar date (see the JS).
+        past = s.get("replay")
         scen_payload.append({
+            "replay": past,
             "mult": s["mult"],
             "label": s["label"],
             "whatif": s["whatif"],
             "rainSource": s["rain_source"],
             "timesS": [float(t) for t in s["times"]],
-            "rain": [round(r, 1) for r in s["rain_series"]],
+            "rain": [round(r, 1) for r in
+                     (past["rainDaily"] if past else s["rain_series"])],
             "alert": str(dec.get("public_alert", "")),
             "source": s["decision_source"],
             "evacZones": dec.get("evacuation_zones", []),
@@ -361,6 +366,35 @@ __FONTS_CSS__
     color: var(--yellow); background: rgba(255,213,79,.1);
     border: 1px solid rgba(255,213,79,.35); }
   #honesty b { letter-spacing: 1.2px; }
+  /* ---------- replay of a past event: results block ---------- */
+  #replaysec { margin-bottom: 14px; }
+  .rsum { font-family: var(--fm); font-size: 10px; line-height: 1.45;
+    letter-spacing: .3px; padding: 7px 9px; border-radius: 6px;
+    color: var(--yellow); background: rgba(255,213,79,.1);
+    border: 1px solid rgba(255,213,79,.35); }
+  .rcat { font-family: var(--fm); font-size: 9.5px; line-height: 1.4;
+    letter-spacing: .3px; margin: 10px 0 3px; padding-left: 8px;
+    border-left: 2px solid var(--line2); color: var(--dim); }
+  .rcat.ok { border-color: var(--safe); color: var(--safe); }
+  .rcat.warn { border-color: var(--yellow); color: var(--yellow); }
+  .rcat.off { border-color: var(--orange); color: var(--orange); }
+  .rcat.bad { border-color: var(--red); color: var(--red); }
+  .rrow { display: flex; align-items: baseline; gap: 8px;
+    padding: 2px 0 2px 10px; font-size: 12px; }
+  .rrow small { margin-left: auto; flex-shrink: 0; font-family: var(--fm);
+    font-size: 10px; color: var(--dim); letter-spacing: .4px; }
+  .rnote { font-family: var(--fm); font-size: 9.5px; line-height: 1.45;
+    color: var(--dimmer); margin-top: 7px; }
+  #raincap { font-family: var(--fm); font-size: 8.5px; letter-spacing: 1.2px;
+    text-transform: uppercase; color: var(--dimmer); margin: -8px 2px 15px;
+    display: flex; justify-content: space-between; }
+  #raincap span + span { color: var(--orange); text-transform: none; }
+  #rainaxis { display: flex; gap: 3px; margin: -4px 2px 8px; }
+  #rainaxis span { flex: 1; text-align: center; font-family: var(--fm);
+    font-size: 8.5px; color: var(--dimmer); white-space: nowrap; }
+  #rainaxis span.now { color: var(--accent); }
+  #rainrow div.past { background: rgba(69,207,233,.3); }
+  #hydroq { color: var(--orange); text-transform: none; }
   .alert.calm { background: linear-gradient(135deg, rgba(76,217,123,.13),
     rgba(76,217,123,.04)); border-color: rgba(76,217,123,.36); }
   .alert.calm .alert-head { color: var(--safe); }
@@ -628,6 +662,7 @@ __FONTS_CSS__
 </div>
 
 <div id="side" class="panel">
+  <div id="replaysec" style="display:none"></div>
   <div class="alert">
     <div class="alert-head"><span class="pulse"></span><span
       id="alertHead">FLOOD ALERT</span></div>
@@ -648,7 +683,8 @@ __FONTS_CSS__
   </div>
   <h2>Hydrograph</h2>
   <div id="hydro"><canvas id="hydrocv"></canvas>
-    <div id="hydrolab"><span>flooded area</span><span>volume</span></div>
+    <div id="hydrolab"><span>flooded area</span><span id="hydroq"
+      style="display:none"></span><span>volume</span></div>
   </div>
   <div id="riversec" style="display:none">
     <h2 id="riverhead">River discharge</h2>
@@ -659,7 +695,7 @@ __FONTS_CSS__
     </div>
   </div>
   <h2>Evacuation priorities</h2><div id="zones"></div>
-  <h2>Points of interest</h2><div id="pois"></div>
+  <h2 id="poishead">Points of interest</h2><div id="pois"></div>
   <h2>Data sources
     <button id="sitrep" title="Download situation report">&#10515;
       sitrep</button></h2>
@@ -699,7 +735,9 @@ __FONTS_CSS__
 
 <div id="bar" class="panel">
   <div id="readout">hover terrain for readout</div>
+  <div id="raincap" style="display:none"></div>
   <div id="rainrow"></div>
+  <div id="rainaxis" style="display:none"></div>
   <div id="controls">
     <button id="playbtn" title="Play / pause (space)"
       aria-label="Play or pause the flood animation">&#9654;</button>
@@ -921,8 +959,15 @@ renderer.domElement.addEventListener("mousemove", function (e) {
   var hitPoi = ray.intersectObjects(poiMeshes)[0];
   if (hitPoi) {
     var p = hitPoi.object.userData;
-    tip.innerHTML = "<b>" + p.name + "</b><br>" + p.type + " &mdash; zone " +
-      p.zone + "<br>water depth here: " + p.depth_here_m + " m";
+    var site = SC.replay && replaySite(p.name);
+    // replay: the pin shows the 2023 check's result for the site (water
+    // within its radius), not the depth of the one cell under the pin
+    tip.innerHTML = site
+      ? "<b>" + escHtml(p.name) + "</b><br>" + SC.replay.start.slice(0, 4) +
+        ": " + escHtml(site.observed) + "<br>model: " +
+        escHtml(site.model) + "<br>" + escHtml(site.catTitle)
+      : "<b>" + p.name + "</b><br>" + p.type + " &mdash; zone " +
+        p.zone + "<br>water depth here: " + p.depth_here_m + " m";
     tip.style.display = "block";
     tip.style.left = (e.clientX + 14) + "px";
     tip.style.top = (e.clientY + 10) + "px";
@@ -964,6 +1009,42 @@ var marksEl = document.getElementById("marks");
 var rainrow = document.getElementById("rainrow");
 var rainBars = [];
 var hydroCv = document.getElementById("hydrocv");
+var hydroQ = document.getElementById("hydroq");
+var rainCap = document.getElementById("raincap");
+var rainAxis = document.getElementById("rainaxis");
+var rainAxisLabs = [];
+
+// ---- clock + rain row units. A forecast scenario runs on T+hours with one
+// rain bar per hour; a replay of a past event (sc.replay) runs on calendar
+// dates with one bar per day.
+var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep",
+  "Oct", "Nov", "Dec"];
+function replayDate(sc, tS) {   // UTC maths: no timezone can shift the day
+  var p = sc.replay.start.split("-");
+  return new Date(Date.UTC(+p[0], +p[1] - 1, +p[2]) +
+    Math.round(tS / 3600) * 3600000);
+}
+function clockText(sc, tS) {
+  if (sc.replay) {
+    var d = replayDate(sc, tS);
+    return d.getUTCDate() + " " + MONTHS[d.getUTCMonth()] + " " +
+      ("0" + d.getUTCHours()).slice(-2) + ":00";
+  }
+  var hrs = tS / 3600;
+  return "T+" + Math.floor(hrs) + ":" +
+    ("0" + Math.floor(hrs % 1 * 60)).slice(-2);
+}
+function rainStepH(sc) { return sc.replay ? 24 : 1; }
+function replaySite(name) {
+  var hit = null;
+  SC.replay.cats.forEach(function (c) {
+    c.sites.forEach(function (s) {
+      if (s.name === name) hit = { observed: s.observed, model: s.model,
+        catTitle: c.title };
+    });
+  });
+  return hit;
+}
 
 // ---- fluid motion: critically damped springs (Apple-style)
 function Spring(x) { this.x = x; this.v = 0; this.target = x;
@@ -971,8 +1052,16 @@ function Spring(x) { this.x = x; this.v = 0; this.target = x;
 Spring.prototype.step = function (dt, response) {
   if (this.done) return this.x;
   var w = 2 * Math.PI / (response || .4);
-  var a = -w * w * (this.x - this.target) - 2 * w * this.v;
-  this.v += a * dt; this.x += this.v * dt;
+  // this integrator diverges once w * dt passes ~0.83 (frames slower than
+  // ~17 fps), which left the water flickering off after a scenario switch
+  // on a slow machine: take sub-steps there. One step, as before, at any
+  // frame rate above ~28 fps.
+  var sub = Math.max(1, Math.ceil(w * dt / .5));
+  dt /= sub;
+  for (var k = 0; k < sub; k++) {
+    var a = -w * w * (this.x - this.target) - 2 * w * this.v;
+    this.v += a * dt; this.x += this.v * dt;
+  }
   if (Math.abs(this.x - this.target) < 5e-4 && Math.abs(this.v) < 5e-4) {
     this.x = this.target; this.v = 0; this.done = true;
   }
@@ -1025,7 +1114,13 @@ function computeEvents(sc) {
   for (f = 0; f < n; f++)
     if (sc._stats[f].areaKm2 > 0) { ev.push({ f: f, label: "First flooding",
       poi: false }); break; }
+  if (sc.replay)
+    ev.push({ f: sc.replay.peakFrame, label: "River inflow peak",
+      poi: false });
   sc.pois.forEach(function (p) {
+    // replay: sites are judged by the results block (water within their
+    // radius), so no per-pin "at risk" marks from the one cell under the pin
+    if (sc.replay) return;
     var idx = (P.rows - 1 - p.row) * P.cols + p.col;
     if (WMASK[idx]) return;
     for (f = 0; f < n; f++)
@@ -1074,8 +1169,15 @@ function setScenario(i) {
     return z.priority === "immediate" || z.priority === "high"; });
   document.querySelector(".alert").classList.toggle("calm", calm);
   document.getElementById("alertHead").textContent =
+    SC.replay ? SC.replay.alertHead :
     calm ? "NO FLOOD EXPECTED" : "FLOOD ALERT";
-  renderHonesty();
+  renderHonesty(); renderReplay();
+  // today's live river reading and the per-pin depth list describe the
+  // forecast, not a past event: hidden while a replay is selected
+  if (P.discharge) document.getElementById("riversec").style.display =
+    SC.replay ? "none" : "";
+  document.getElementById("poishead").style.display =
+    document.getElementById("pois").style.display = SC.replay ? "none" : "";
   slider.max = SC.timesS.length - 1;
 
   var btns = document.getElementById("storm").children;
@@ -1085,7 +1187,11 @@ function setScenario(i) {
   renderZones(); renderPois(); renderSources(); renderRainBars();
   renderMarks(); buildRoutes(SC); applyViewMode();
   poiMeshes.forEach(function (m, j) { m.userData = SC.pois[j]; });
-  setFrame(SC.timesS.length - 1);
+  // the rain row was rebuilt and the clock and stats belong to the new
+  // scenario: force the next syncUI even if the frame index did not change
+  shown.hour = -1; shown.f = -1;
+  // a replay opens on its river peak; a forecast on its last frame
+  setFrame(SC.replay ? SC.replay.peakFrame : SC.timesS.length - 1);
 }
 
 // jump the playhead (scrub, arrows, presentation). Cancels any glide.
@@ -1112,15 +1218,17 @@ function statAt(f) {  // stats interpolated between sim snapshots
 
 // per-rAF UI sync — only touches the DOM when a shown value changed
 function syncUI() {
-  if (Math.abs(frameF - shown.f) < .005 && morphS.done) return;
-  shown.f = frameF;
+  // (settled: the stats were last written with the scenario blend finished;
+  // without it the last blended value, a hair off the real one, stayed up)
+  if (Math.abs(frameF - shown.f) < .005 && morphS.done && shown.settled)
+    return;
+  shown.f = frameF; shown.settled = morphS.done;
   var n = SC.timesS.length;
   var i0 = Math.floor(frameF), i1 = Math.min(i0 + 1, n - 1);
   var tf = frameF - i0;
   var tS = SC.timesS[i0] + (SC.timesS[i1] - SC.timesS[i0]) * tf;
   var hrs = tS / 3600;
-  tlabel.textContent = "T+" + Math.floor(hrs) + ":" +
-    ("0" + Math.floor(hrs % 1 * 60)).slice(-2);
+  tlabel.textContent = clockText(SC, tS);
   if (+slider.value !== Math.round(frameF))
     slider.value = Math.round(frameF);
 
@@ -1137,14 +1245,28 @@ function syncUI() {
   stPeople.textContent = "~" +
     Math.round(s.areaKm2 * P.popDensity).toLocaleString("en");
 
-  var hour = Math.floor(hrs);
+  // index of the rain bar the playhead is in: the hour, or the day (replay)
+  var hour = Math.floor(hrs / rainStepH(SC));
   if (hour !== shown.hour) {
     shown.hour = hour;
-    rainBars.forEach(function (b, h) { b.className = h < hrs ? "wet" : ""; });
+    if (SC.replay) {
+      var today = Math.min(hour, rainBars.length - 1);
+      rainBars.forEach(function (b, h) {
+        b.className = h === today ? "wet" : h < today ? "past" : "";
+        rainAxisLabs[h].className = h === today ? "now" : "";
+      });
+    } else
+      rainBars.forEach(function (b, h) { b.className = h < hrs ? "wet" : ""; });
   }
   var rainMax = Math.max.apply(null, SC.rain.concat([1]));
-  rainLevel = hrs >= SC.rain.length ? 0
+  rainLevel = hour >= SC.rain.length ? 0
     : SC.rain[Math.min(hour, SC.rain.length - 1)] / rainMax;
+  if (SC.replay) {
+    var qin = SC.replay.inflow;
+    hydroQ.textContent = rainCap.lastChild.textContent =
+      "RIVER INFLOW " + Math.round(
+        qin[i0] + (qin[i1] - qin[i0]) * tf).toLocaleString("en") + " m³/s";
+  }
   drawHydro(frameF);
 }
 
@@ -1213,6 +1335,18 @@ function drawHydro(f) {
   for (i = 0; i < n; i++)
     i ? g.lineTo(X(i), YV(st[i].volMm3)) : g.moveTo(X(i), YV(st[i].volMm3));
   g.strokeStyle = "rgba(132,148,169,.8)"; g.lineWidth = 1; g.stroke();
+  // replay only: the river inflow that was fed in, on its own scale
+  if (SC.replay) {
+    var qin = SC.replay.inflow, maxQ = Math.max(SC.replay.inflowPeak, 1);
+    g.beginPath();
+    for (i = 0; i < n; i++) {
+      var yq = h - pad - qin[i] / maxQ * (h - 2 * pad);
+      i ? g.lineTo(X(i), yq) : g.moveTo(X(i), yq);
+    }
+    g.setLineDash([4, 3]);
+    g.strokeStyle = "#ffab40"; g.lineWidth = 1.4; g.stroke();
+    g.setLineDash([]);
+  }
   // cursor
   g.beginPath(); g.moveTo(X(f), pad); g.lineTo(X(f), h - pad);
   g.strokeStyle = "rgba(230,237,246,.55)"; g.lineWidth = 1; g.stroke();
@@ -1263,8 +1397,8 @@ function renderZones() {
   if (SC.evacZones.length > 6) {
     var more = document.createElement("div");
     more.className = "src";
-    more.textContent = "+ " + (SC.evacZones.length - 6) +
-      " more zones in decisions.json";
+    more.textContent = "+ " + (SC.evacZones.length - 6) + " more zones" +
+      (SC.replay ? "" : " in decisions.json");
     el.appendChild(more);
   }
 }
@@ -1298,9 +1432,36 @@ function renderHonesty() {
       (SC.rainSource.indexOf("design storm") === 0
         ? "a synthetic storm, not the forecast."
         : "the forecast rain &times;" + SC.mult + ", not the forecast."));
+  if (SC.replay)
+    msgs.push("<b>" + escHtml(SC.replay.title) + "</b><br>" +
+      escHtml(SC.replay.banner));
   document.getElementById("honesty").innerHTML = msgs.map(function (m) {
     return "<div>" + m + "</div>";
   }).join("");
+}
+
+// Replay of a past event: what happened at each checked site against what
+// the model shows. Wording and categories come from replay.py, which derives
+// them from the saved run; nothing here judges an outcome.
+function renderReplay() {
+  var el = document.getElementById("replaysec"), R = SC.replay;
+  el.style.display = R ? "" : "none";
+  hydroQ.style.display = R ? "" : "none";
+  if (!R) { el.innerHTML = ""; return; }
+  var html = "<h2>" + escHtml(R.heading) + "</h2>" +
+    "<div class='rsum'>" + escHtml(R.summary) + "</div>";
+  R.cats.forEach(function (c) {
+    html += "<div class='rcat " + escHtml(c.tone) + "'>" +
+      escHtml(c.title) + "</div>";
+    c.sites.forEach(function (s) {
+      html += "<div class='rrow'><span>" + escHtml(s.name) +
+        "</span><small>model: " + escHtml(s.model) + "</small></div>";
+    });
+  });
+  R.notes.forEach(function (t) {
+    html += "<div class='rnote'>" + escHtml(t) + "</div>";
+  });
+  el.innerHTML = html;
 }
 
 function renderSources() {
@@ -1309,7 +1470,9 @@ function renderSources() {
     "<div class='src'><em>imagery</em><b>" + P.imagerySource + "</b></div>" +
     "<div class='src'><em>rainfall</em><b>" + SC.rainSource +
     (SC.mult !== 1 ? " &times; " + SC.mult : "") + "</b></div>" +
-    "<div class='src'><em>river</em><b>" + P.riverSource + "</b></div>" +
+    "<div class='src'><em>river</em><b>" +
+    (SC.replay ? escHtml(SC.replay.riverSource) : P.riverSource) +
+    "</b></div>" +
     "<div class='src'><em>physics</em><b>Landlab OverlandFlow &mdash; 2D " +
     "shallow water</b></div>" +
     "<div class='src'><em>decisions</em><b>" + SC.source + "</b></div>" +
@@ -1327,6 +1490,18 @@ function renderRainBars() {
     rainrow.appendChild(bar);
     rainBars.push(bar);
   });
+  // replay: the bars are days, so say so and date them
+  rainAxis.innerHTML = ""; rainAxisLabs = [];
+  rainCap.style.display = rainAxis.style.display = SC.replay ? "" : "none";
+  if (!SC.replay) return;
+  rainCap.innerHTML = "<span>Rain, mm per day</span><span></span>";
+  SC.rain.forEach(function (r, k) {
+    var d = replayDate(SC, k * 86400), lab = document.createElement("span");
+    lab.textContent = d.getUTCDate() + " " + MONTHS[d.getUTCMonth()];
+    rainBars[k].title = lab.textContent + ": " + r + " mm of rain";
+    rainAxis.appendChild(lab);
+    rainAxisLabs.push(lab);
+  });
 }
 
 function renderMarks() {
@@ -1336,7 +1511,9 @@ function renderMarks() {
     var d = document.createElement("div");
     d.className = "mark" + (e.poi ? " poi" : "");
     d.style.left = (e.f / n * 100) + "%";
-    d.title = e.label + " (T+" + (SC.timesS[e.f] / 3600).toFixed(1) + "h)";
+    d.title = e.label + (SC.replay
+      ? " (" + clockText(SC, SC.timesS[e.f]) + ")"
+      : " (T+" + (SC.timesS[e.f] / 3600).toFixed(1) + "h)");
     d.addEventListener("click", function () { seekTo(e.f); });
     marksEl.appendChild(d);
   });
@@ -1349,11 +1526,20 @@ document.getElementById("sitrep").addEventListener("click", function () {
     "HYDROTWIN SITUATION REPORT",
     "==========================",
     "Case      : " + P.caseTitle + " (" + P.lat + ", " + P.lon + ")",
-    "Scenario  : " + SC.label + (SC.whatif ? " (WHAT-IF)" : "") + " (" +
+    "Scenario  : " + SC.label + (SC.whatif ? " (WHAT-IF)" : "") +
+      (SC.replay ? " (REPLAY OF A PAST EVENT, NOT A FORECAST)" : "") + " (" +
       Math.round(SC.rain.reduce(function (a, v) { return a + v; }, 0)) +
-      " mm over " + SC.rain.length + " h)",
-    "Sim time  : T+" + (SC.timesS[f] / 3600).toFixed(2) + " h",
-    "",
+      " mm over " + SC.rain.length + (SC.replay ? " days)" : " h)"),
+    SC.replay ? "Sim time  : " + clockText(SC, SC.timesS[f]) + " " +
+        SC.replay.start.slice(0, 4)
+      : "Sim time  : T+" + (SC.timesS[f] / 3600).toFixed(2) + " h",
+    ""];
+  if (SC.replay) {
+    lines.push(SC.replay.title, SC.replay.banner, SC.replay.summary);
+    SC.replay.notes.forEach(function (t) { lines.push(t); });
+    lines.push("");
+  }
+  lines.push(
     "Peak depth    : " + s.max.toFixed(2) + " m",
     "Flooded area  : " + s.areaKm2.toFixed(2) + " km2",
     "Water volume  : " + s.volMm3.toFixed(2) + " Mm3",
@@ -1363,21 +1549,31 @@ document.getElementById("sitrep").addEventListener("click", function () {
     "PUBLIC ALERT",
     SC.alert,
     "",
-    "EVACUATION ZONES (" + SC.evacZones.length + ")"];
+    "EVACUATION ZONES (" + SC.evacZones.length + ")");
   SC.evacZones.forEach(function (z) {
     lines.push("  [" + z.priority.toUpperCase() + "] " + z.zone + " — " +
       z.reason);
   });
-  lines.push("", "POINTS OF INTEREST");
-  SC.pois.forEach(function (p) {
-    lines.push("  " + p.name + " (" + p.type + ", zone " + p.zone + "): " +
-      (p.depth_here_m >= P.floodDepthM ? p.depth_here_m + " m of water"
-        : "safe"));
-  });
+  if (SC.replay) {
+    lines.push("", "SITES CHECKED");
+    SC.replay.cats.forEach(function (c) {
+      lines.push("  " + c.title);
+      c.sites.forEach(function (st) {
+        lines.push("    " + st.name + " (model: " + st.model + ")");
+      });
+    });
+  } else {
+    lines.push("", "POINTS OF INTEREST");
+    SC.pois.forEach(function (p) {
+      lines.push("  " + p.name + " (" + p.type + ", zone " + p.zone + "): " +
+        (p.depth_here_m >= P.floodDepthM ? p.depth_here_m + " m of water"
+          : "safe"));
+    });
+  }
   lines.push("", "SOURCES",
     "  terrain   : " + P.terrainSource,
     "  rainfall  : " + SC.rainSource + " x" + SC.mult,
-    "  river     : " + P.riverSource,
+    "  river     : " + (SC.replay ? SC.replay.riverSource : P.riverSource),
     "  physics   : Landlab OverlandFlow (2D shallow water)",
     "  decisions : " + SC.source, "");
   var blob = new Blob([lines.join("\n")], { type: "text/plain" });
@@ -1468,7 +1664,8 @@ var stormEl = document.getElementById("storm");
 P.scenarios.forEach(function (sc, i) {
   var b = document.createElement("button");
   b.textContent = sc.label;
-  b.title = (sc.whatif ? "What-if: " : "As forecast: ") + sc.rainSource +
+  b.title = (sc.replay ? "Replay of a past event, not a forecast: " :
+    sc.whatif ? "What-if: " : "As forecast: ") + sc.rainSource +
     (sc.mult !== 1 ? " ×" + sc.mult : "") + " (" +
     Math.round(sc.rain.reduce(function (a, v) { return a + v; }, 0)) +
     " mm total)";
@@ -1666,6 +1863,10 @@ function tickPresentation(now) {
       pres.focus.y + SIZE * .16, pres.focus.z + Math.cos(az2) * d);
     controls.target.copy(pres.focus);
   } else endPresentation();
+  // OrbitControls is paused during the tour, so nothing else aims the
+  // camera: without this it keeps its old heading and the scene drifts out
+  // of view
+  camera.lookAt(controls.target);
 }
 
 // ---- scale bar
