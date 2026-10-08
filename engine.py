@@ -17,10 +17,10 @@ from datetime import datetime, timezone
 import numpy as np
 
 import config
+import decide
 import flooddata
 import imagery
 import rainfall
-import river
 import scenarios as scen
 import terrain
 import viewer3d
@@ -72,7 +72,11 @@ def simulate_location(lat, lon, title=None, pop_density=None,
 
         say("fetching satellite imagery", 20)
         sat = imagery.get_imagery()
-        water_mask = river.water_mask(elevation, cell_size)
+        water_mask = scen.fetch_water_mask(elevation, cell_size, tries=2)
+        # no-op for live locations (no inflow point); kept so engine and
+        # run.py share one terrain pipeline
+        elevation, terrain_source, _ = scen.condition_terrain(
+            elevation, cell_size, terrain_source, water_mask)
 
         say("placing points of interest", 30)
         pois = _fetch_pois(lat, lon, elevation, cell_size)
@@ -86,8 +90,10 @@ def simulate_location(lat, lon, title=None, pop_density=None,
         inflow, q_in, river_label = scen.river_inflow(elevation, cell_size,
                                                       discharge)
 
+        # river channel + inflow cells: rendered, never counted as flooding
+        exclude = scen.exclude_mask(water_mask, elevation.shape, inflow, q_in)
         scenarios = scen.run_all(scen.plan(rain), elevation, cell_size,
-                                 inflow, q_in, say=say)
+                                 inflow, q_in, say=say, exclude=exclude)
 
         say("rendering 3D scene", 92)
         issued_at = datetime.now(timezone.utc).isoformat()
@@ -95,11 +101,12 @@ def simulate_location(lat, lon, title=None, pop_density=None,
             scenarios, elevation, cell_size, terrain_source,
             discharge=discharge, river=river_label, live=True,
             issued_at=issued_at, write=False, imagery=sat,
-            water_mask=water_mask)
+            water_mask=exclude)
 
         default = next(s for s in scenarios if s["is_default"])
         rain_source = default["rain_source"]
-        peak = default["depths"][default["decisions"]["peak_index"]]
+        peak = decide.land_depth(
+            default["depths"][default["decisions"]["peak_index"]], exclude)
         flooded_km2 = float((peak > config.FLOOD_DEPTH_M).sum()) \
             * cell_size * cell_size / 1e6
         summary = {

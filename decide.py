@@ -21,10 +21,25 @@ def zone_name(zr, zc):
     return f"{chr(ord('A') + (config.ZONE_DIV - 1 - zr))}{zc + 1}"
 
 
-def summarize_flood(depths, times):
-    """Build a compact text + structured summary of the peak flood state."""
-    peak_idx = int(np.argmax([d.sum() for d in depths]))
-    peak = depths[peak_idx]
+def land_depth(depth, exclude=None):
+    """Depth grid with permanent-water / river-inflow cells zeroed, so water
+    standing in the river's own channel is never counted as flooding."""
+    if exclude is None or not exclude.any():
+        return depth
+    return np.where(exclude, 0.0, depth)
+
+
+def summarize_flood(depths, times, exclude=None):
+    """Build a compact text + structured summary of the peak flood state.
+
+    exclude: bool grid (row 0 = south) of cells that are not land — permanent
+    river/lake surface and the river inflow cells. They are ignored for the
+    peak frame, zone stats and POI depths (zone percentages are of land)."""
+    if exclude is None:
+        exclude = np.zeros(depths[0].shape, bool)
+    land = ~exclude
+    peak_idx = int(np.argmax([d[land].sum() for d in depths]))
+    peak = land_depth(depths[peak_idx], exclude)
     rows, cols = peak.shape
     rband = rows // config.ZONE_DIV
     cband = cols // config.ZONE_DIV
@@ -32,7 +47,11 @@ def summarize_flood(depths, times):
     zones = []
     for zr in range(config.ZONE_DIV):
         for zc in range(config.ZONE_DIV):
-            block = peak[zr * rband:(zr + 1) * rband, zc * cband:(zc + 1) * cband]
+            sl = (slice(zr * rband, (zr + 1) * rband),
+                  slice(zc * cband, (zc + 1) * cband))
+            block = peak[sl][land[sl]]
+            if block.size == 0:                     # zone is all water
+                block = np.zeros(1)
             zones.append({
                 "zone": zone_name(zr, zc),
                 "max_depth_m": round(float(block.max()), 2),
@@ -80,13 +99,16 @@ Only include zones that actually need action. Consider the points of interest \
 (hospitals and schools raise priority; flooded roads constrain routes)."""
 
 
-def get_decisions(depths, times, allow_claude=True, quiet=False):
+def get_decisions(depths, times, allow_claude=True, quiet=False,
+                  exclude=None):
     """Return (decisions_dict, source_label). Never raises.
 
     allow_claude=False forces the (instant, offline) rule-based planner —
     used for the non-default what-if storm scenarios.
+    exclude: non-land cells (see summarize_flood).
     """
-    summary_text, zones, pois, peak_idx = summarize_flood(depths, times)
+    summary_text, zones, pois, peak_idx = summarize_flood(depths, times,
+                                                          exclude)
     if not quiet:
         print("[decide] Flood summary:\n" + summary_text)
 

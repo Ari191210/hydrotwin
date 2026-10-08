@@ -27,9 +27,9 @@ def run_case(name):
           f"storm {config.SIM_DURATION_HR} h")
     print("=" * 64)
 
+    import decide
     import imagery
     import rainfall
-    import river
     import scenarios as scen
     import simulate
     import terrain
@@ -41,16 +41,21 @@ def run_case(name):
     elevation, cell_size, terrain_source = terrain.load_terrain()
     config.POIS = scen.resolve_pois(config.POIS, elevation.shape)
     sat = imagery.get_imagery()
-    water_mask = river.water_mask(elevation, cell_size)
+    water_mask = scen.fetch_water_mask(elevation, cell_size)
+    # river cases only: make the DEM channel hydraulically continuous
+    elevation, terrain_source, _ = scen.condition_terrain(
+        elevation, cell_size, terrain_source, water_mask)
     rain = rainfall.get_rainfall()
     discharge = flooddata.get_river_discharge()
     inflow, q_in, river_label = scen.river_inflow(elevation, cell_size,
                                                   discharge)
+    # river channel + inflow cells: rendered, but never counted as flooding
+    exclude = scen.exclude_mask(water_mask, elevation.shape, inflow, q_in)
 
     # The default scenario is the forecast as issued (the only one that may
     # call Claude); the rest are labelled what-ifs.
     scenarios = scen.run_all(scen.plan(rain), elevation, cell_size,
-                             inflow, q_in)
+                             inflow, q_in, exclude=exclude)
 
     default = next(s for s in scenarios if s["is_default"])
     rain_source = default["rain_source"]
@@ -69,7 +74,7 @@ def run_case(name):
         viewer_path = viewer3d.make_3d_viewer(
             scenarios, elevation, cell_size, terrain_source,
             discharge=discharge, river=river_label, imagery=sat,
-            water_mask=water_mask)
+            water_mask=exclude)
     except Exception as exc:
         print(f"[viewer3d] 3D viewer failed ({type(exc).__name__}: {exc}) "
               f"— 2D map + animation still produced")
@@ -85,14 +90,15 @@ def run_case(name):
                                                   cell_size, decisions)
 
     peak = depths[decisions["peak_index"]]
-    flooded_km2 = float((peak > config.FLOOD_DEPTH_M).sum()) \
+    land_peak = decide.land_depth(peak, exclude)   # channel water excluded
+    flooded_km2 = float((land_peak > config.FLOOD_DEPTH_M).sum()) \
         * cell_size * cell_size / 1e6
     return {
         "case": name, "title": case["title"],
         "terrain": terrain_source, "rain": rain_source,
         "rain_total_mm": sum(rain_series),
-        "peak_depth_m": float(peak.max()),
-        "flooded_cells": int((peak > config.FLOOD_DEPTH_M).sum()),
+        "peak_depth_m": float(land_peak.max()),
+        "flooded_cells": int((land_peak > config.FLOOD_DEPTH_M).sum()),
         "flooded_km2": flooded_km2,
         "people_est": int(flooded_km2 * config.POP_DENSITY_KM2),
         "pop_density": config.POP_DENSITY_KM2,

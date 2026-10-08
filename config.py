@@ -11,11 +11,20 @@ CASES = {
         "title": "Rishikesh — Ganga exiting the Himalaya",
         "lat": 30.11, "lon": 78.29,
         "pop_density_km2": 1200,   # stated estimate for people-affected calc
+        # POIs by lat/lon (OSM Overpass, 2026-10-08); snapped to grid cells.
+        # OSM maps no school inside this window, so none is listed. The two
+        # bridges are unnamed in OSM: labels = road ref + river crossed.
         "pois": [
-            {"name": "District Hospital", "type": "hospital", "row": 38, "col": 44},
-            {"name": "Govt. Senior School", "type": "school", "row": 62, "col": 58},
-            {"name": "NH-7 River Bridge", "type": "road", "row": 30, "col": 50},
-            {"name": "Station Road Junction", "type": "road", "row": 70, "col": 35},
+            {"name": "S.P.S Government Hospital", "type": "hospital",
+             "lat": 30.10873, "lon": 78.29593},     # way/742423053
+            {"name": "Nirmal Ashram Hospital", "type": "hospital",
+             "lat": 30.10444, "lon": 78.30327},     # way/743357867
+            {"name": "NH7 Chandrabhaga Bridge", "type": "road",
+             "lat": 30.10867, "lon": 78.30156},     # way/102676805
+            {"name": "NH34 Chandrabhaga Bridge", "type": "road",
+             "lat": 30.11699, "lon": 78.28626},     # way/1094021117
+            {"name": "Gaura Devi Chowk", "type": "road",
+             "lat": 30.11412, "lon": 78.28381},     # node/10963006065
         ],
     },
     "delhi": {
@@ -44,11 +53,17 @@ CASES = {
         "title": "Hue, Vietnam — Perfume River",
         "lat": 16.46, "lon": 107.59,
         "pop_density_km2": 2500,
+        # POIs by lat/lon (OSM Overpass, 2026-10-08); snapped to grid cells.
+        # Names are OSM name:en, shortened / ASCII-folded where noted.
         "pois": [
-            {"name": "Hue Central Hospital", "type": "hospital", "row": 52, "col": 40},
-            {"name": "Quoc Hoc High School", "type": "school", "row": 44, "col": 34},
-            {"name": "Trang Tien Bridge", "type": "road", "row": 48, "col": 52},
-            {"name": "QL1A Highway", "type": "road", "row": 65, "col": 60},
+            {"name": "Hue Central Hospital", "type": "hospital",
+             "lat": 16.46220, "lon": 107.58710},    # way/438257497
+            {"name": "Quoc Hoc High School", "type": "school",
+             "lat": 16.45954, "lon": 107.58380},    # way/695775622 (shortened)
+            {"name": "Phu Xuan Bridge (QL1)", "type": "road",
+             "lat": 16.46563, "lon": 107.58508},    # way/39419121
+            {"name": "Truong Tien Bridge", "type": "road",
+             "lat": 16.46895, "lon": 107.58879},    # way/1431129413 (ASCII)
         ],
     },
 }
@@ -135,6 +150,12 @@ INFLOW_CHANNEL_DZ_M = 2.0  # edge cells within this of the channel bed take infl
 INFLOW_MAX_CELLS = 25      # cap on the inflow span along the edge
 INFLOW_DEPTH_ROWS = 5      # inflow is spread this many rows into the domain
 INFLOW_MAX_DH_M = 0.25     # cap on depth added to an inflow cell in one step
+
+# ---- River channel conditioning (cases with an inflow point only) --------
+CHANNEL_CONDITIONING = True      # cut the DEM thalweg to a non-increasing bed (river.condition_channel); False = raw DEM as before
+CHANNEL_PATH_DIST_WEIGHT = 5e-4  # thalweg search: m of climb charged per m travelled (0.5 m/km)
+CHANNEL_MIN_SLOPE = 0.0          # extra bed drop per m along the thalweg (0 = plain running minimum)
+CHANNEL_SILL_MIN_M = 0.3         # bed highs smaller than this are not reported as sills
 
 # ---- Decisions ------------------------------------------------------------
 FLOOD_DEPTH_M = 0.30       # depth that counts as "flooded"

@@ -17,3 +17,6 @@ assets/surrogate_*_val.npz
 # tool caches, not project source
 .impeccable/
 .firecrawl/
+
+# bare-earth DEM tile and derived grids (CC BY-NC-SA, not redistributed here)
+assets/dem/

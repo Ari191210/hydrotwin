@@ -275,7 +275,7 @@ __FONTS_CSS__
     --bg0: #04070c; --bg1: #0b111b; --panel: rgba(9, 13, 20, .92);
     --line: rgba(148, 178, 215, .10); --line2: rgba(148, 178, 215, .22);
     --text: #e6edf6; --dim: #8494a9; --dimmer: #71829a;
-    --accent: #45cfe9; --red: #ff5c57; --orange: #ffab40;
+    --accent: #45cfe9; --accent2: #7c9cf5; --red: #ff5c57; --orange: #ffab40;
     --yellow: #ffd54f; --safe: #4cd97b;
     --fd: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
     --fm: "IBM Plex Mono", ui-monospace, Consolas, monospace;
@@ -309,7 +309,7 @@ __FONTS_CSS__
   body.live #brand { display: none; }
   body.live #tabs { display: none; }
   body.live #left { top: 64px; }
-  body.live #view { top: 64px; }
+  body.live #view { top: 64px; max-height: calc(100% - 186px); }
 
   a:focus-visible, button:focus-visible, input:focus-visible,
   select:focus-visible { outline: 2px solid var(--accent);
@@ -361,6 +361,8 @@ __FONTS_CSS__
     color: var(--yellow); background: rgba(255,213,79,.1);
     border: 1px solid rgba(255,213,79,.35); }
   #honesty b { letter-spacing: 1.2px; }
+  .alert.calm { background: linear-gradient(135deg, rgba(76,217,123,.13),
+    rgba(76,217,123,.04)); border-color: rgba(76,217,123,.36); }
   .alert.calm .alert-head { color: var(--safe); }
   .alert.calm .pulse { background: var(--safe); animation: none; }
 
@@ -375,6 +377,7 @@ __FONTS_CSS__
     display: flex; align-items: center; gap: 8px; font-weight: 400; }
   h2::after { content: ""; flex: 1; height: 1px; background: var(--line); }
   h2:first-child { margin-top: 0; }
+  #riversec > h2 { margin-top: 18px; }
   h2 button { margin-left: auto; font-family: var(--fm); font-size: 9.5px;
     letter-spacing: 1px; color: var(--accent); background: none;
     border: none; cursor: pointer; text-transform: uppercase; }
@@ -479,9 +482,10 @@ __FONTS_CSS__
 
   /* ---------- bottom bar ---------- */
   #bar { left: 50%; transform: translateX(-50%); bottom: 14px;
-    width: min(720px, calc(100% - 400px)); padding: 8px 18px 13px; }
+    width: min(720px, max(420px, calc(100% - 744px)));
+    padding: 8px 18px 13px; }
   #readout { font-family: var(--fm); font-size: 10px; color: var(--dimmer);
-    letter-spacing: .6px; text-align: center; margin-bottom: 6px;
+    letter-spacing: .6px; text-align: center; margin-bottom: 14px;
     min-height: 15px; }
   #readout b { color: var(--accent); font-weight: 600; }
   #rainrow { display: flex; align-items: flex-end; gap: 3px; height: 32px;
@@ -521,7 +525,11 @@ __FONTS_CSS__
 
   /* ---------- view options ---------- */
   #view { top: 14px; right: 14px; padding: 13px 16px; width: 224px;
-    font-size: 12px; }
+    font-size: 12px; max-height: calc(100% - 136px); overflow-y: auto;
+    overscroll-behavior: contain; }
+  #view::-webkit-scrollbar { width: 5px; }
+  #view::-webkit-scrollbar-thumb { background: var(--line2);
+    border-radius: 3px; }
   .vh { font-family: var(--fm); font-size: 9px; letter-spacing: 2.2px;
     text-transform: uppercase; color: var(--dimmer); margin: 0 0 7px; }
   .vh + .vh { margin-top: 12px; }
@@ -531,6 +539,7 @@ __FONTS_CSS__
     color: var(--dim); font-family: var(--fm); font-size: 10.5px;
     font-weight: 600; cursor: pointer; transition: all .15s;
     letter-spacing: .5px; }
+  #storm { flex-wrap: wrap; }
   #storm button { flex: 1 1 auto; padding: 6px 6px; white-space: nowrap; }
   #storm button:hover, #vmode button:hover { color: var(--text);
     border-color: var(--line2); }
@@ -551,7 +560,9 @@ __FONTS_CSS__
   .llab { display: flex; justify-content: space-between;
     color: var(--dimmer); font-family: var(--fm); font-size: 9px;
     margin-top: 3px; letter-spacing: .5px; }
-  #mlpanel .vh { display: flex; justify-content: space-between;
+  #mlpanel { margin-top: 11px; padding-top: 11px;
+    border-top: 1px solid var(--line); }
+  #mlpanel .vh { margin-bottom: 0; display: flex; justify-content: space-between;
     align-items: center; }
   #mlToggle { font-family: var(--fm); font-size: 9px; letter-spacing: 1px;
     padding: 3px 9px; border-radius: 10px; border: 1px solid var(--line2);
@@ -564,8 +575,10 @@ __FONTS_CSS__
   #mlbody input[type=range] { width: 100%; margin-top: 3px;
     accent-color: var(--yellow); }
   #mlStats { margin-top: 8px; flex-direction: column; gap: 2px; }
-  #mlNote { color: var(--dimmer); font-size: 9.5px; line-height: 1.4;
-    margin-top: 6px; white-space: normal; }
+  #mlStats .src em { width: 92px; }
+  #mlNote { display: block; color: var(--dimmer); font-size: 9.5px;
+    line-height: 1.4; margin-top: 6px; white-space: normal;
+    overflow-wrap: anywhere; }
 
   /* ---------- HUD bottom right ---------- */
   #scale { position: absolute; right: 22px; bottom: 88px; text-align: right; }
@@ -742,6 +755,9 @@ function b64Bytes(b64) {
 var ELEV = new Float32Array(b64Bytes("__ELEV_B64__").buffer);
 var N = P.rows * P.cols;
 var cellKm2 = P.cellSize * P.cellSize / 1e6;
+// permanent river/lake + river-inflow cells (north-row-first, like depths):
+// their water is drawn but never counted as flooding
+var WMASK = b64Bytes(P.waterMaskB64);
 bootSay("terrain grid " + P.rows + "&times;" + P.cols + " decoded");
 
 // ---- scene scale
@@ -989,11 +1005,12 @@ function decodeScenario(sc) {
       var mx = 0, wet = 0, sum = 0;
       for (var i = 0; i < N; i++) {
         var d = sc._depth[f * N + i];
+        if (d > sc._vmax) sc._vmax = d;   // colour scale: all water drawn
+        if (WMASK[i]) continue;           // stats: land only
         if (d > mx) mx = d;
         if (d >= P.floodDepthM * 100) wet++;
         sum += d;
       }
-      if (mx > sc._vmax) sc._vmax = mx;
       sc._stats.push({ max: mx / 100, areaKm2: wet * cellKm2,
         volMm3: sum / 100 * P.cellSize * P.cellSize / 1e6 });
     }
@@ -1010,6 +1027,7 @@ function computeEvents(sc) {
       poi: false }); break; }
   sc.pois.forEach(function (p) {
     var idx = (P.rows - 1 - p.row) * P.cols + p.col;
+    if (WMASK[idx]) return;
     for (f = 0; f < n; f++)
       if (sc._depth[f * N + idx] >= P.floodDepthM * 100) {
         ev.push({ f: f, label: p.name + " at risk", poi: true }); break;
@@ -1496,6 +1514,7 @@ if (P.surrogate) {
       for (var k = 0; k < 10; k++) v += f[k] * mlCoef[k * N + i];
       if (v < 0) v = 0;
       depth[i] = v;
+      if (WMASK[i]) continue;             // drawn, not counted
       if (v > maxD) maxD = v;
       if (v >= P.floodDepthM) wetCells++;
     }

@@ -5,6 +5,10 @@ a labelled what-if. When the forecast is too dry to show a flood, the
 design storm is offered as a what-if; it never replaces the forecast.
 """
 
+import time
+
+import numpy as np
+
 import config
 import decide
 import rainfall
@@ -68,8 +72,58 @@ def river_inflow(elevation, cell_size, discharge):
     return info, q, label
 
 
-def run_all(specs, elevation, cell_size, inflow=None, q_m3s=0.0, say=None):
-    """Run physics + decisions for every spec; returns viewer scenarios."""
+def fetch_water_mask(elevation, cell_size, tries=3):
+    """river.water_mask with retries: Overpass 504s often, and an empty mask
+    silently makes the river channel count as flooded land again."""
+    for i in range(tries):
+        mask = river.water_mask(elevation, cell_size)
+        if mask.any():
+            return mask
+        # empty = 504, or a 200 with no elements (Overpass's own timeout);
+        # indistinguishable from "no water here", so retry either way
+        if i < tries - 1:
+            print(f"[scenarios] empty water mask -> retry {i + 2}/{tries}")
+            time.sleep(3 * (i + 1))
+    print("[scenarios] !!! NO WATER MASK after "
+          f"{tries} tries (Overpass down, or no water mapped here): any "
+          "river/lake cells WILL COUNT AS FLOODED in the stats, zones and "
+          "alert !!!")
+    return mask
+
+
+CONDITIONED_TAG = " + river channel conditioned"
+
+
+def condition_terrain(elevation, cell_size, terrain_source, water_mask=None):
+    """(elevation, terrain_source, diagnostics) with the river channel
+    hydro-conditioned (river.condition_channel). A strict no-op, returning
+    the same array and label and diagnostics None, when the case has no
+    inflow point or config.CHANNEL_CONDITIONING is off."""
+    if not config.CHANNEL_CONDITIONING or not config.INFLOW:
+        return elevation, terrain_source, None
+    conditioned, diag = river.condition_channel(elevation, cell_size,
+                                                water_mask)
+    if diag is None:
+        return elevation, terrain_source, None
+    # appended, not prepended: callers test terrain_source.startswith(...)
+    return conditioned, terrain_source + CONDITIONED_TAG, diag
+
+
+def exclude_mask(water_mask, shape, inflow=None, q_m3s=0.0):
+    """Bool grid (row 0 = south) of cells that never count as flooding:
+    permanent water plus, while the river is being routed in, the cells the
+    inflow is injected into."""
+    ex = (np.zeros(shape, bool) if water_mask is None
+          else np.array(water_mask, dtype=bool))
+    if inflow and q_m3s:
+        ex.flat[inflow["nodes"]] = True       # node id = row * cols + col
+    return ex
+
+
+def run_all(specs, elevation, cell_size, inflow=None, q_m3s=0.0, say=None,
+            exclude=None):
+    """Run physics + decisions for every spec; returns viewer scenarios.
+    exclude: exclude_mask() grid, kept out of every decision figure."""
     out = []
     for i, s in enumerate(specs):
         if say:
@@ -86,7 +140,7 @@ def run_all(specs, elevation, cell_size, inflow=None, q_m3s=0.0, say=None):
             inflow=inflow, inflow_m3s_at=(lambda t: q_m3s) if q_m3s else None)
         decisions, source = decide.get_decisions(
             depths, times, allow_claude=s["is_default"],
-            quiet=not s["is_default"])
+            quiet=not s["is_default"], exclude=exclude)
         out.append({**s, "times": times, "depths": depths,
                     "decisions": decisions, "decision_source": source})
     return out
