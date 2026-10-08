@@ -107,9 +107,11 @@ def score(peak_q, save_every_h=6.0, npz_path=None, mask_file=None):
 
 
 def save_run(path, peak_q, times, depths, elevation, cell_size, mask, inflow,
-             orb_rc, stage, rows_out):
+             orb_rc, stage, rows_out, extra=None):
     """Persist the scored run so a viewer can replay it without re-simulating.
-    Grids are (rows, cols) with row 0 = south, like `elevation`."""
+    Grids are (rows, cols) with row 0 = south, like `elevation`.
+    extra: optional dict of additional arrays to store (used by the
+    post-hoc conditioned-DEM variant); None keeps the original key set."""
     rows, cols = elevation.shape
     hours = np.arange(bt.DURATION_H + 1, dtype=np.float64)
     inflow_mask = np.zeros((rows, cols), dtype=bool)
@@ -148,6 +150,7 @@ def save_run(path, peak_q, times, depths, elevation, cell_size, mask, inflow,
         site_max_depth_m=np.array([by_name[n][4] for n in names]),
         flood_depth_m=np.float64(THRESH),
         radius_m=np.float64(RADIUS_M),
+        **(extra or {}),
     )
     print(f"[score] saved {len(depths)} frames to {path}", flush=True)
 

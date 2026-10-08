@@ -16,9 +16,15 @@ if __name__ == "__main__":
         i = args.index("--save-every-h")
         save_h = float(args[i + 1])
         del args[i:i + 2]
+    conditioned = "--conditioned" in args   # post-hoc variant, see the prereg
+    if conditioned:
+        args.remove("--conditioned")
     qs = [float(x) for x in args]
-    print(f"saving every {save_h:g} h", flush=True)
-    trial = partial(bt.calib_trial, save_every_h=save_h)
+    print(f"saving every {save_h:g} h"
+          + (", CONDITIONED river bed (post-hoc variant)" if conditioned
+             else ""), flush=True)
+    trial = partial(bt.calib_trial, save_every_h=save_h,
+                    conditioned=conditioned)
     with ProcessPoolExecutor(max_workers=len(qs)) as ex:
         for q, stage in ex.map(trial, qs):
             print(f"peak_q={q:.0f}  ORB stage={stage:.3f} m  "

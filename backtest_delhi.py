@@ -61,9 +61,30 @@ def river_q_at(t_seconds, peak_q):
     return peak_q * (1.0 - (h - peak_h) / FALL_H)
 
 
-def setup():
+def setup(conditioned=False):
+    """conditioned=False (default) is the pre-registered setup: the raw
+    pipeline DEM. conditioned=True is the POST-HOC variant (see
+    BACKTEST_PREREG.md): the same DEM with the river bed carved the way the
+    live pipeline does it (scenarios.condition_terrain, cached OSM mask),
+    and the inflow cells found on that conditioned DEM, as run.py does."""
     config.set_case("delhi")
     elevation, cell_size, terrain_source = terrain.load_terrain()
+    if conditioned:
+        import scenarios
+
+        water_mask = scenarios.fetch_water_mask(elevation, cell_size)
+        if not water_mask.any():
+            raise RuntimeError("no OSM water mask: the outlet for channel "
+                               "conditioning cannot be located")
+        saved = config.CHANNEL_CONDITIONING
+        config.CHANNEL_CONDITIONING = True
+        try:
+            elevation, terrain_source, channel = scenarios.condition_terrain(
+                elevation, cell_size, terrain_source, water_mask)
+        finally:
+            config.CHANNEL_CONDITIONING = saved
+        if channel is None:
+            raise RuntimeError("channel conditioning did not run")
     inflow = river.find_inflow(elevation, cell_size)
     orb_rc = terrain.latlon_to_rc(*ORB_LATLON, *elevation.shape)
     return elevation, cell_size, terrain_source, inflow, orb_rc
@@ -83,10 +104,10 @@ def orb_stage(depths, elevation, orb_rc):
     return float(elevation[orb_rc]) + peak_depth
 
 
-def calib_trial(peak_q, save_every_h=24.0):
+def calib_trial(peak_q, save_every_h=24.0, conditioned=False):
     """Importable (for ProcessPoolExecutor on Windows spawn) single trial:
     fresh setup + one run, returns (peak_q, orb_stage_m)."""
-    elevation, cell_size, terrain_source, inflow, orb_rc = setup()
+    elevation, cell_size, terrain_source, inflow, orb_rc = setup(conditioned)
     _, depths = run_once(peak_q, elevation, cell_size, inflow,
                          save_every_s=save_every_h * 3600.0)
     return peak_q, orb_stage(depths, elevation, orb_rc)

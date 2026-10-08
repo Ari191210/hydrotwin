@@ -277,6 +277,197 @@ is not supportable, so it is withdrawn. What can be said:
   presented as river-flood skill.
 - The Majnu ka Tilla miss is the DEM limit stated before the run.
 
+## Post-hoc variant: conditioned river bed (2026-10-08/09)
+
+**This section is NOT pre-registered.** The DEM section above said the DEM
+would be unchanged for the backtest. Here the DEM is changed, after the
+pre-registered result was known. The pre-registered result (raw DEM,
+peak_q=2900 m3/s, Group A 2/3, one false alarm) stands exactly as recorded
+above. This variant is reported next to it, not instead of it.
+
+### Why the DEM was changed
+
+The change was made for the live demo, not for the backtest. On the raw DEM
+the mapped Yamuna channel climbs and falls by metres (bars, noise over
+water, bridge decks), so a steady 96 m3/s routed in at the north edge never
+left the grid: the channel filled like a bathtub and the live view showed
+flooding on a normal day. The fix (`river.condition_channel`, switched on
+by `config.CHANNEL_CONDITIONING`) traces the thalweg from the inflow to the
+outlet and cuts it to a non-increasing bed; cells are only lowered. That
+false alarm was found in the live view, independently of the backtest
+outcome. Because the demo now runs on the conditioned DEM, the backtest is
+repeated on it so the two describe the same model.
+
+### What changed and what did not
+
+- **Changed:** the DEM only. 513 of 22,500 cells lowered (max 5.13 m, mean
+  1.91 m), a 3-cell-wide channel along a 13.3 km thalweg from (148, 66) to
+  the outlet (0, 100); 11 sills removed, the highest 4.64 m at (64, 88).
+  No cell is raised. The ORB cell (72, 88) lies in the carved channel: its
+  bed drops from 206.852 m to 203.638 m.
+- **Not changed:** sites, hit rule (250 m, 0.30 m), OSM channel mask (the
+  same cached 908 cells), rain series, triangular hydrograph (48 h rise,
+  48 h fall, peak 07-11), dry start, 6 h frames (45 frames), the calibration
+  rule (ORB stage within 0.10 m of 208.66 m) and the tie-break (smallest
+  absolute stage error).
+- **Inflow cells:** found with `river.find_inflow` on the conditioned DEM,
+  as `run.py` does. The reported bed cell snaps one column over, (148, 65)
+  instead of (148, 66), but the 15 inflow cells and the 9 closed boundary
+  cells are identical to the raw-DEM run, and the simulation reads only
+  those lists. So the water enters through the same cells.
+- The live pipeline also warm-starts the river and uses GloFAS discharge.
+  Neither is used here: the backtest keeps its own forcing and dry start.
+
+Code: `backtest_delhi.setup(conditioned=True)` (default `False` reproduces
+the raw setup; checked against the saved raw run, same elevation and inflow
+cells), `backtest_conditioned.py` (trials, both scoring columns, control,
+connectivity).
+
+### Calibration trials (conditioned DEM, all with 6 h frames)
+
+| peak_q (m3/s) | ORB stage (m) | error vs 208.66 (m) | in ±0.10? |
+|---|---|---|---|
+| 0 (no river, also the control run) | 203.954 | -4.706 | no |
+| 4500 | 208.139 | -0.521 | no |
+| 7000 | 208.522 | -0.138 | no |
+| 7800 | 208.624 | -0.036 | yes |
+| 8000 | 208.648 | -0.012 | yes |
+| **8200** | **208.671** | **+0.011** | **yes** |
+| 8400 | 208.694 | +0.034 | yes |
+| 11000 | 208.969 | +0.309 | no |
+
+These are all the trials that were run, in two batches of four (0, 4500,
+7000, 11000, then 7800 to 8400). **8200 is chosen by the same tie-break as
+before**, the smallest absolute stage error (0.0111 m, against 0.0121 m at
+8000). All nine site outcomes, in both scoring columns below, are the same
+at every trial from 4500 to 11000, so the choice does not change the score.
+The saved ORB peak is again the frame at t=120 h.
+
+**On the size of peak_q.** The calibrated peak is 2.8 times the raw-DEM
+value (8200 against 2900). That is the expected direction: on the raw DEM
+the ORB cell sat behind sills, so a small flow was enough to raise the
+stage there; with a continuous bed 3.2 m lower the same stage needs far
+more water. 8200 m3/s (excess above the dry-season baseline the DEM
+already holds) is below the Hathnikund peak release (about 10,190 m3/s, so
+about 80% of it) and below the 12,000 m3/s level at which this number would
+have been flagged as not physically credible. But it would mean that about
+80% of a 2-hour peak survived some 200 km of river, where this document
+itself expects heavy attenuation, so it is not shown to be credible either.
+It is not confirmed against a measured Delhi discharge (none was found),
+and it is
+still one calibrated number that absorbs the model's channel geometry
+(a 3-cell, about 200 m wide carved slot) and roughness. It is not a
+discharge estimate for the event.
+
+### Scoring at peak_q=8200 m3/s
+
+Two columns from the **same run**. The primary column is the pre-registered
+hit rule with the pre-registered OSM channel mask (908 cells). The second
+column is **not pre-registered**: it uses the live pipeline's fuller
+exclusion (`scenarios.exclude_mask`): OSM mask (908) + inflow cells (15) +
+bankfull footprint (3,497 cells, the steady wet area at 1,304 m3/s above
+the dry-season baseline, steady after 18 h, cached in `assets/masks/`),
+3,996 cells together. No site's window is fully excluded (the most is
+Raj Ghat, 15 of 81 cells; Yamuna Bazar 12 of 81), so the "all cells
+masked" fallback in the scoring code is never used.
+
+| Site | Group | Observed | Primary: OSM mask (pre-registered rule) | Max depth (m) | Second: full exclusion (not pre-registered) | Max depth (m) | Match (both) |
+|---|---|---|---|---|---|---|---|
+| Yamuna Bazar | A | flooded | flooded | 3.55 | flooded | 1.24 | YES |
+| Kashmere Gate ISBT | A | flooded | flooded | 2.23 | flooded | 2.23 | YES |
+| Majnu ka Tilla | A | flooded | dry | 0.29 | dry | 0.29 | no |
+| Red Fort (Ring Road) | B | flooded | flooded | 1.67 | flooded | 1.67 | YES |
+| Civil Lines | B | flooded | flooded | 2.69 | flooded | 2.69 | YES |
+| ITO | C | flooded (drain 12) | dry | 0.05 | dry | 0.05 | no (expected, outside the model) |
+| Raj Ghat | C | flooded (drain 12) | flooded | 2.06 | flooded | 2.06 | YES by the hit rule (not river water, see below) |
+| Connaught Place | D | dry | **flooded** | 0.76 | **flooded** | 0.76 | **no, false alarm** |
+| DU North Campus | D | dry | dry | 0.01 | dry | 0.01 | YES |
+
+**Headline, both columns: Group A 2/3 correct. Group D 1/2 correct, one
+false alarm. Group B 2/2. Group C: ITO dry, Raj Ghat flooded.** The fuller
+exclusion changes one number only: Yamuna Bazar's deepest counted cell
+drops from 3.55 m to 1.24 m, because the deepest cells in its window are
+inside the bankfull footprint. It is still flooded.
+
+### Rain-only control and connectivity (conditioned DEM)
+
+Rain-only run: peak_q=0, same rain, same masks, same rules.
+
+| Site | Max depth with river, 8200 (m) | Max depth rain only (m) | Wet cells connected to the river-fed area? |
+|---|---|---|---|
+| Yamuna Bazar | 3.55 | 0.01 (dry) | **Yes.** One 5,214-cell area that holds all 15 inflow cells and 536 channel-mask cells; water surface at the site 209.33 to 209.47 m. Linked from t=84 h, in 15 of 45 frames |
+| Kashmere Gate ISBT | 2.23 | 2.23 | No. Isolated 15-cell pond, surface 212.93 m, never linked in any frame |
+| Majnu ka Tilla | 0.29 (dry) | 0.29 | Not flooded |
+| Red Fort (Ring Road) | 1.67 | 1.67 | No. Isolated 10-cell pond, surface 217.12 m, never linked |
+| Civil Lines | 2.69 | 2.69 | No. Isolated 19-cell pond, surface 214.98 m, never linked |
+| ITO | 0.05 (dry) | 0.05 | Not flooded |
+| Raj Ghat | 2.06 | 2.06 | No. Isolated 18-cell pond, surface 208.58 m, never linked |
+| Connaught Place | 0.76 | 0.76 | No. Two isolated ponds of 3 and 5 cells, surfaces 218.74 m and 217.64 m, never linked |
+| DU North Campus | 0.01 (dry) | 0.01 | Not flooded |
+
+Method: connected components of depth >= 0.30 m, labelled at each site's
+peak frame (the saved frame where its windowed maximum outside the OSM mask
+is largest) and at every saved frame; "linked" means a wet site cell shares
+a component with inflow cells or channel-mask cells. 4- and 8-connectivity
+give the same answer for every site. With rain alone the table scores
+Group A 1/3 (Kashmere Gate only), in both columns. The rain-only depths at
+the eight other sites match the with-river depths to within 4 mm.
+
+**What holds now: the same as on the raw DEM.** The river hydraulics
+produce exactly one of the flooded calls, Yamuna Bazar, and it is correct.
+Kashmere Gate, Red Fort, Civil Lines and Raj Ghat are hits under the frozen
+rule, but they are the same rain ponds in closed depressions, at the same
+depths and surfaces as before, 4 to 10 m above the river (Raj Ghat's pond
+sits at 208.58 m, close to the river stage, but is never connected and is
+the same with the river off). Connaught Place is the same rain-pond false
+alarm. Conditioning lowered only cells in the river corridor, so it could
+not drain these depressions, and it did not.
+
+### Side by side
+
+| | Pre-registered (raw DEM) | Post-hoc (conditioned river bed) |
+|---|---|---|
+| Status | pre-registered result | not pre-registered |
+| ORB bed (m) | 206.852 | 203.638 |
+| Calibrated peak_q (m3/s) | 2900 | 8200 |
+| ORB stage (m), error | 208.648, -0.012 | 208.671, +0.011 |
+| ORB depth at peak (m) | 1.80 | 5.03 |
+| Rain-only ORB stage (m) | 206.854 | 203.954 |
+| Group A | 2/3 | 2/3 (both columns) |
+| Group B | 2/2 | 2/2 |
+| Group C | ITO dry, Raj Ghat flooded | ITO dry, Raj Ghat flooded |
+| Group D false alarms | 1 of 2 (Connaught Place) | 1 of 2 (Connaught Place) |
+| Yamuna Bazar depth (m) | 3.32 | 3.55 (1.24 outside the bankfull footprint) |
+| Other eight sites, depth | as tabled above | same to within 3 mm |
+| Sites flooded by river water | Yamuna Bazar only | Yamuna Bazar only |
+| River-fed area at t=120 h (cells >= 0.30 m) | 4,662 | 5,214 |
+| ... of which outside the full exclusion (*) | 1,116 | 1,590 |
+
+(*) The bankfull footprint exists only for the conditioned DEM. The raw-DEM
+figure applies that same mask to the raw run for comparison; the raw
+pipeline never had a footprint.
+
+**Reading.** Conditioning the river bed does not change any site outcome,
+and it does not make the backtest better or worse by the frozen rule. It
+changes the calibrated inflow a great deal (2900 to 8200 m3/s), which shows
+that the raw-DEM number was set by the sills in the channel and should not
+be read as a discharge. The 8200 figure is below the 12,000 m3/s flag level
+but is equally unverified and is not a discharge estimate. The evidence
+the backtest gives for the river model is unchanged: one river-fed site,
+correctly flooded; one DEM-limited miss; the rest is rain ponding that the
+hit rule cannot tell apart from river flooding.
+
+Not checked: a finer frame cadence than 6 h (the true stage peak may sit
+slightly above the sampled one, as before); peak_q values between 8000 and
+8200; the FABDEM variant (`BACKTEST_FABDEM.md`) was not rerun with a
+conditioned bed.
+
+The run is saved at `assets/backtest_delhi_2023_conditioned.npz` (same keys
+as `assets/backtest_delhi_2023.npz`, `elevation` is the conditioned DEM,
+plus `elevation_raw`, `bankfull_mask`, `exclude_mask_full`,
+`dem_conditioned`, `dem_note` and the second-column and rain-only site
+depths).
+
 ## Change log
 
 - 2026-10-07, before any run: renamed the table column to "Observed in 2023"
@@ -303,3 +494,21 @@ is not supportable, so it is withdrawn. What can be said:
   withdrew the "from physics alone" and "pure overbank routing" wording,
   which they contradict. The calibrated run is saved at
   `assets/backtest_delhi_2023.npz`.
+- 2026-10-09 (work started 2026-10-08), after the pre-registered result:
+  added the section "Post-hoc variant: conditioned river bed". It reruns
+  the backtest on the channel-conditioned DEM the live demo now uses, which
+  departs from the DEM section ("unchanged for the backtest") and is
+  therefore labelled not pre-registered. Reason for the DEM change: a
+  normal-day false alarm in the live view (the raw channel ponded), found
+  independently of the backtest outcome. Nothing else was changed (sites,
+  hit rule, OSM mask, rain, hydrograph shape, calibration rule). Result:
+  peak_q=8200 m3/s gives ORB stage 208.671 m (+0.011 m); all nine site
+  outcomes equal the pre-registered ones (Group A 2/3, one false alarm),
+  also under the live pipeline's fuller exclusion, and Yamuna Bazar is
+  still the only river-fed site. The pre-registered result is not
+  replaced. Code: `setup(conditioned=False)` and a `conditioned=False`
+  argument to `calib_trial` in `backtest_delhi.py`, `--conditioned` in
+  `calib_parallel.py`, an optional `extra=` in `score_backtest.save_run`,
+  and the new `backtest_conditioned.py`; all defaults reproduce the
+  earlier behaviour. Run saved at
+  `assets/backtest_delhi_2023_conditioned.npz`.
