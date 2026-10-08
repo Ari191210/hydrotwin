@@ -65,16 +65,21 @@ with **no internet and no API keys**:
 1. **Terrain** — AWS Terrain Tiles (SRTM, no key) or OpenTopography (with key);
    on any failure: synthetic river valley.
 2. **Rainfall** — Open-Meteo hourly forecast (no key), wettest window in the
-   next 48 h; on failure *or* a too-dry forecast (< `MIN_DEMO_RAIN_MM`):
-   built-in design storm (printed clearly either way).
-3. **Live flood data** — Open-Meteo Flood API (Copernicus **GloFAS** river
-   discharge forecast, no key). Samples a 3×3 cell neighbourhood and keeps
-   the strongest cell (the river channel). Last good response is cached per
-   case in `assets/glofas_cache.json`, so the discharge panel shows
-   last-known live data (timestamped) with no internet. Omitted only if no
-   river cell is near the basin and nothing is cached.
+   next 48 h. The default scenario is always that forecast as issued, even
+   when it is dry ("no flood expected" is a valid answer). The built-in
+   design storm is only ever a labelled what-if; it is the default only
+   when the forecast cannot be fetched at all, and the viewer says so.
+3. **River discharge** — Open-Meteo Flood API (Copernicus **GloFAS**
+   forecast, no key). Samples a 3×3 cell neighbourhood and keeps the
+   strongest cell. Compared against a 1997-2024 climatology built from the
+   same API (`assets/glofas_clim.json`). Last good response is cached in
+   `assets/glofas_cache.json`.
+   For the Delhi preset the river is routed through the model, not just
+   displayed (see "River model" below). Other locations are rain only and
+   the viewer says so.
 4. **Physics** — Landlab `OverlandFlow` (de Almeida et al. explicit
-   shallow-water scheme), adaptive timestep. No ML, no training.
+   shallow-water scheme), adaptive timestep. `check_inflow.py` checks the
+   river source term against Manning's normal depth (0.709 m vs 0.710 m).
 5. **Decisions** — `claude-sonnet-5` returns strict JSON (evacuation zones,
    safe routes, public alert); on missing key / API error / bad JSON:
    rule-based planner.
@@ -86,10 +91,49 @@ with **no internet and no API keys**:
 (optional — enables the Claude decision layer). Terrain, rainfall, and live
 river discharge are all keyless.
 
+## River model (Delhi preset)
+
+- **Continuous river bed** (`river.condition_channel`): the raw elevation
+  data does not give the Yamuna a continuous downhill bed, so a small flow
+  ponded in the channel. The bed is carved along a least-climb path from
+  the inflow to the mapped outlet.
+- **What is routed**: discharge above the dry-season baseline the elevation
+  data was captured at (February median).
+- **What counts as the river**: the mapped water (OpenStreetMap), plus the
+  area wet at the median annual maximum flow ("bankfull footprint",
+  `riverstate.py`). Flooding means water outside that.
+- **Warm start**: forecast runs begin from the steady state at today's
+  flow, not from a dry channel.
+
+## Honesty rules
+
+- Anything on screen that is not the real forecast over real terrain is
+  labelled: what-if scenarios, the July 2023 replay, synthetic terrain.
+- Evacuation zones and alerts are advisory. A person decides.
+- `BACKTEST_PREREG.md` records the July 2023 Delhi backtest: rules fixed
+  before the first run, results, a rain-only control, and a post-hoc rerun
+  on the conditioned river bed. Short version: the inflow is calibrated to
+  the recorded river level; one of three main sites is flooded by the
+  river in the model, one is missed, and other wet sites are rain pooling
+  in terrain dips (no drains are modelled).
+  `BACKTEST_FABDEM.md` repeats it on bare-earth elevation data as a
+  separate result.
+- GloFAS alone would not have flagged July 2023 at Delhi (907 m3/s on the
+  peak day, below its own median annual maximum). The model needs a real
+  river flow, such as the upstream barrage release.
+
+## ML instant preview (Delhi page)
+
+A small model fitted to 234 runs of this physics (`surrogate.py`,
+`surrogate_baselines.py`), scored on 50 held-out runs: 0.96 wet-area
+overlap outside the river, against 0.61 for predicting the average map.
+It is an approximation for instant what-if sliders. The physics result is
+the reference.
+
 ## Configuration
 
 Everything is in `config.py`: basin lat/lon, grid size, storm duration,
-depth thresholds, POIs, and `RAIN_MULTIPLIER` if you want a bigger show.
+depth thresholds, POIs, the what-if multipliers, and the river settings.
 
 ## Setup from scratch
 
@@ -125,6 +169,9 @@ languages to the multilingual one.
 
 ## Module map
 
-`config.py` (all knobs + case presets) → `terrain.py` → `rainfall.py` →
-`simulate.py` → `decide.py` → `viewer3d.py` + `visualize.py`,
-orchestrated by `run.py`.
+`config.py` (all knobs + case presets) → `terrain.py` + `imagery.py` →
+`rainfall.py` + `flooddata.py` → `river.py` + `riverstate.py` →
+`scenarios.py` → `simulate.py` → `decide.py` → `viewer3d.py` +
+`visualize.py`, orchestrated by `run.py` (static) and `engine.py` +
+`server.py` (live). Backtest: `backtest_delhi.py`, `score_backtest.py`,
+`backtest_conditioned.py`. Demo script: `DEMO_SCRIPT.md`.

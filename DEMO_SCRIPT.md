@@ -1,104 +1,142 @@
-# HydroTwin demo script — ~3 minutes
+# HydroTwin demo script, about 3 minutes
 
-Written 2026-10-08, Day 3. Pitch: district disaster officers (the one
-user from the 2026-10-07 interview — residents/planners are "what's
-next", not shown live). Guaranteed-offline path is primary; the live
-server is the backup if asked "does this work for ANY city."
+Rewritten 2026-10-09 after the backtest controls. The earlier version
+claimed "2 of 3 sites from physics alone" and three "bonus" hits. The
+rain-only control showed that is not true, so those lines are gone. Every
+number below is in BACKTEST_PREREG.md, BACKTEST_FABDEM.md or the commit
+log.
 
-**Before judges arrive:** `outputs/delhi/flood_3d.html` open in a
-browser tab already, zoomed to the terrain view, auto-rotate OFF (so the
-screen isn't moving while you talk over it). Confirm `outputs/index.html`
-and the `delhi`/`rishikesh`/`hue` folders are current (`run.py` with no
-args rebuilds all three — do this once the morning of judging, since
-rainfall/river numbers are live-fetched at build time).
+Audience: judges. User we pitch: district disaster officers.
 
-## 0. One line before touching anything (10s)
+## What we can honestly claim
 
-"HydroTwin simulates floods with real physics — not a model that just
-guesses from past data — and we checked it against a flood that actually
-happened."
+1. **The physics is checked.** Steady flow down a test channel settles at
+   0.709 m against 0.710 m from Manning's formula.
+2. **Given the river's flow, it shows where the water goes.** In the July
+   2023 replay the model floods Yamuna Bazar from the river, which is
+   what happened.
+3. **It does not cry wolf.** On a normal day the Delhi page says no flood.
+   Force the river to twice its ordinary yearly high and it raises
+   top-priority zones.
+4. **Nothing invented is shown as real.** What-ifs, replays and fallbacks
+   are labelled on screen.
+5. **The instant preview matches the physics.** 96% overlap with held-out
+   physics runs outside the river.
 
-## 1. The backtest first, not the live demo (60s)
+## What we must not claim
 
-This is the credibility beat. Lead with it, don't bury it.
+- That it "predicted" or "would have predicted" the 2023 flood. The river
+  inflow in the replay was tuned so the level at the Old Railway Bridge
+  matches the record.
+- "2 of 3 sites". By the rule we fixed in advance the table reads 2 of 3,
+  but only Yamuna Bazar is flooded by the river. The other wet sites are
+  rain pooling in terrain dips and stay just as wet with the river off.
+- That the global forecast feed is enough. GloFAS put 13 July 2023 at
+  907 m3/s, below its own ordinary yearly high. The real barrage release
+  was about 10,190 m3/s. Fed by GloFAS alone, this would not have flagged
+  that flood.
+- Any accuracy number for the Laya field-report triage.
 
-- Say: "In July 2023 the Yamuna hit a record 208.66 metres in Delhi and
-  flooded Yamuna Bazar, Kashmere Gate, the Red Fort stretch. We fed our
-  model the same river conditions and asked: does it get it right?"
-- Show the terminal output or a prepared slide from
-  `BACKTEST_PREREG.md`'s Results section:
-  - **2 of 3 main flood sites correctly identified** (Yamuna Bazar,
-    Kashmere Gate ISBT) — flooded, matching reality.
-  - **The one miss (Majnu ka Tilla) is explained, not hidden:** our
-    elevation data doesn't resolve that street's actual height — we
-    said this BEFORE running the test, not after.
-  - **Bonus:** two more sites (Red Fort, Civil Lines) and Raj Ghat
-    flooded correctly from pure physics, with zero tuning toward them.
-  - One false alarm (Connaught Place), root-caused to a real local dip
-    in the terrain plus no storm-drain modeling — name it if asked, it's
-    in the writeup.
-- Say: "We pre-registered exactly what would count as a hit before we
-  ran it once. That table is in the repo, dated before the run."
+## Before the judges arrive
 
-**If a judge asks "why not all 3 / why the false alarm" — this is a WIN,
-not a weakness, to have a ready, honest answer for. Don't get defensive.**
+- Run `.venv\Scripts\python run.py` that morning (rain and river numbers
+  are fetched live at build time). Takes a few minutes.
+- Open `outputs/delhi/flood_3d.html`. Turn Auto-rotate off.
+- If showing the live server: start `server.py` at least 2 minutes early
+  (the field-report model takes about 95 s to load).
+- Do not leave both ML sliders at zero on screen.
 
-## 2. The live scene (60s)
+## 0. Opening (15 s)
 
-- Switch to the open Delhi tab. Point at the satellite imagery under the
-  terrain — "that's the real Yamuna, real streets."
-- Scrub the timeline or hit play — water rises from the north edge
-  (where the river enters) and spreads downstream, not a canned
-  animation.
-- Point at the honesty banner if a what-if scenario or synthetic terrain
-  ever shows (it's yellow, impossible to miss) — "if anything on screen
-  isn't the real forecast, it says so, right here."
-- Point at the river discharge panel — "that's today's actual Yamuna
-  flow against its 30-year seasonal average, not a static number."
+"On 11 July 2023 a barrage 200 km upstream of Delhi released its biggest
+flow of the year. The Yamuna peaked in Delhi about 55 hours later, at a
+record 208.66 metres. HydroTwin is a physics model that takes a river
+flow like that and shows, street by street, where the water goes."
 
-## 3. The ML instant-preview, 20s, only if there's time
+## 1. Today, on the real map (40 s)
 
-- Toggle "ML instant preview" ON in the right panel.
-- Drag the river-excess slider — "that's not a 20-second physics rerun,
-  that's instant, from a model fit to 380 of our own simulations. It's
-  accurate to about 3 centimetres on water we never showed it during
-  training" — point at the RMSE/IoU numbers printed right in the panel.
-- Toggle it back OFF before moving on — don't leave the validated
-  physics view showing an ML-preview state.
+- Delhi page, Forecast selected. Point at the satellite terrain: "This is
+  the real Yamuna and the real city."
+- Point at the alert: "Today it says no flood. The river is running above
+  its seasonal normal, inside its banks, and the model knows the
+  difference." (Read the actual numbers off the discharge panel.)
+- Point at the Data sources list: "Every number says where it came from."
 
-## 4. Laya field report, 15-20s
+## 2. The July 2023 replay (60 s) - the centre of the demo
 
-- Switch to the live server tab (pre-warmed — Laya takes ~90s to load,
-  do this BEFORE judges arrive, not during).
-- Submit one canned report ("water rising near the hospital, roads
-  cut off") on a zone that's currently "monitor" priority.
-- Point at it escalating, or if no exact POI match, say plainly: "field
-  reports only auto-place when they name a known landmark exactly — this
-  one didn't, so it's logged but not yet placed. We don't fake a match."
+- Click "July 2023". Read the yellow banner out loud: it is a replay, the
+  inflow was calibrated to the bridge record, rain is from the archive.
+- Scrub to the peak (around 11 July). "The river leaves its banks here."
+- Open the results block and say it straight:
+  - "We picked nine places before running anything."
+  - "Yamuna Bazar: flooded by the river in the model, and it flooded in
+    2023."
+  - "Majnu ka Tilla: we miss it. Our elevation data reads rooftops, and
+    it puts that ground too high."
+  - "Four other places show water, but it is rain pooling in dips because
+    we do not model drains. We do not count those as hits."
+  - "One false alarm, Connaught Place, for the same reason."
+- "So: one clear river hit, one clear miss, and we can tell you exactly
+  why for each. We wrote the rules down before the run. That file is in
+  the repository with its date."
 
-## 5. Close (15s)
+## 3. What-if, instantly (30 s)
 
-"The physics is real, the backtest is real and the misses are explained,
-and an officer using this sees exactly where the numbers come from. That's
-the bar we held ourselves to."
+- Switch back to Forecast. Toggle "ML instant preview" on.
+- Drag the river slider up past about 1,300 m3/s: "That is the river
+  going over its banks. This is not a rerun of the physics. It is a small
+  model fitted to 234 physics runs, and it matches runs it never saw 96%
+  of the time outside the river."
+- Toggle it off before moving on.
 
-## Fallback order if anything breaks live
+## 4. Field reports, only if time (20 s)
 
-1. Live server down / slow / no internet → `outputs/index.html` (fully
-   offline, pre-built that morning).
-2. Laya not loaded in time → skip step 4, don't apologize at length,
-   move to the close.
-3. A what-if/synthetic-terrain banner appears unexpectedly → use it as
-   proof of the honesty design, don't scramble to hide it.
+- Live server tab. Submit one report. "A report from the ground can raise
+  a zone's priority. It only pins itself to the map when it names a known
+  place exactly. Otherwise it is logged, not guessed."
+- No accuracy claims here.
 
-## Known weak points — have an answer ready, don't dodge
+## 5. Close (15 s)
 
-- Only 1 location backtested (Delhi) — "that's the one with a real flood
-  record to check against; the other two are architecturally the same
-  pipeline, just not validated against history yet."
-- The ML preview is Delhi-only — "it's a fit to one fixed terrain's
-  response surface, not a general flood predictor; we said that, it's in
-  the panel."
-- Evacuation decisions are advisory — "the AI (or the rule-based
-  fallback) drafts zones and a public alert; a human officer makes the
-  call. We don't present this as autonomous."
+"The model needs one thing it cannot make up: the real river flow. The
+barrage release is announced two days before the water reaches Delhi.
+Give an officer that number and this shows which streets to clear. That
+is the product."
+
+## Questions to expect, with honest answers
+
+- **"So did it predict 2023?"** "No. We tuned the inflow to the bridge
+  record, then checked where the water went. One site right, one missed,
+  the rest inconclusive."
+- **"Why not use the global forecast?"** "We tried. It rated 2023 as an
+  ordinary year at Delhi. That is why the input has to be the barrage
+  release."
+- **"Why did you change the terrain after the test?"** "The first version
+  ponded water in the channel and raised a false alarm on a normal day.
+  We fixed the channel, reran the test, and report both. The site
+  outcomes did not change."
+- **"How is this different from Google Flood Hub?"** "Flood Hub tells you
+  the river will be high. This shows which streets, with the reasons, and
+  it runs on a number a district office already receives."
+- **"Would you let it order an evacuation?"** "No. It drafts zones and an
+  alert. An officer decides."
+- **"What about drains?"** "Not modelled. It is why ITO is dry in our
+  replay and why rain pools in dips over long runs."
+- **"Only one city tested?"** "Yes. Delhi is the one with a recorded
+  flood we could check against."
+
+## If something breaks
+
+1. No internet or server down: use `outputs/index.html`. It is fully
+   offline.
+2. A yellow banner appears that you did not expect: read it out. That is
+   the design working.
+3. Field-report model not loaded: skip step 4.
+
+## Optional, only if asked about better data
+
+BACKTEST_FABDEM.md repeats the test on bare-earth elevation data. Kashmere
+Gate becomes a genuine river hit there at modest flows, but matching the
+bridge record needs an inflow 2.4 times the real barrage release, so we do
+not present its 3 of 3 as a result. That data is licensed for
+non-commercial use only.
