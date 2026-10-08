@@ -153,16 +153,20 @@ def export_poly(case="delhi", degree="cubic", rain_max=4.0, river_qmax=400.0):
     rows, cols = tr["elevation"].shape
     path = os.path.join("assets", "surrogate")
     os.makedirs(path, exist_ok=True)
-    blob = base64.b64encode(coef.astype("<f4").tobytes()).decode()
+    # coef_north, NOT coef: the viewer indexes cell i north-row-first
+    blob = base64.b64encode(coef_north.astype("<f4").tobytes()).decode()
     out = {
         "case": case, "rows": rows, "cols": cols, "degree": degree,
         "features": FEATURE_NAMES, "rain_max": rain_max,
         "river_qmax": river_qmax, "q_scale": 100.0,
         "coefB64": blob,
-        "metrics": {"rmse_m": rmse, "iou": iou, "method": "per-pixel cubic "
-                    "polynomial, fit on 380 Landlab physics runs "
-                    "(320 train + 60 held-out val); IoU/RMSE above are the "
-                    "held-out numbers, from a fit using train only"},
+        # viewer3d.py renders this as "Fit to " + method + ". Held-out
+        # accuracy: RMSE ... IoU ...", so it must read as a noun phrase and
+        # must not point "above" at numbers that come after it
+        "metrics": {"rmse_m": rmse, "iou": iou, "method": "380 Landlab "
+                    "physics runs (per-pixel cubic polynomial); the accuracy "
+                    "figures are from a 320-run fit scored on the 60 "
+                    "held-out runs"},
     }
     fpath = os.path.join(path, f"{case}.json")
     with open(fpath, "w", encoding="utf-8") as f:
