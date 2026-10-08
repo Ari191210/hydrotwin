@@ -43,19 +43,27 @@ def run_case(name):
     sat = imagery.get_imagery()
     water_mask = scen.fetch_water_mask(elevation, cell_size)
     # river cases only: make the DEM channel hydraulically continuous
-    elevation, terrain_source, _ = scen.condition_terrain(
+    elevation, terrain_source, channel = scen.condition_terrain(
         elevation, cell_size, terrain_source, water_mask)
     rain = rainfall.get_rainfall()
     discharge = flooddata.get_river_discharge()
     inflow, q_in, river_label = scen.river_inflow(elevation, cell_size,
                                                   discharge)
-    # river channel + inflow cells: rendered, but never counted as flooding
-    exclude = scen.exclude_mask(water_mask, elevation.shape, inflow, q_in)
+    # river cases only (both None otherwise): what the river occupies at
+    # bankfull, and the river already flowing at today's routed discharge
+    footprint = scen.river_footprint(elevation, cell_size, inflow, discharge,
+                                     channel)
+    initial = scen.river_warm_start(elevation, cell_size, inflow, q_in,
+                                    channel)
+    # river channel, its bankfull footprint and the inflow cells: rendered,
+    # but never counted as flooding
+    exclude = scen.exclude_mask(water_mask, elevation.shape, inflow, q_in,
+                                footprint)
 
     # The default scenario is the forecast as issued (the only one that may
     # call Claude); the rest are labelled what-ifs.
     scenarios = scen.run_all(scen.plan(rain), elevation, cell_size,
-                             inflow, q_in, exclude=exclude)
+                             inflow, q_in, exclude=exclude, initial=initial)
 
     default = next(s for s in scenarios if s["is_default"])
     rain_source = default["rain_source"]

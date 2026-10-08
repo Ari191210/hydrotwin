@@ -157,6 +157,16 @@ CHANNEL_PATH_DIST_WEIGHT = 5e-4  # thalweg search: m of climb charged per m trav
 CHANNEL_MIN_SLOPE = 0.0          # extra bed drop per m along the thalweg (0 = plain running minimum)
 CHANNEL_SILL_MIN_M = 0.3         # bed highs smaller than this are not reported as sills
 
+# ---- River baseline, bankfull footprint, warm start (inflow cases only) ---
+# Routed discharge = GloFAS forecast above q_dem_baseline (February median:
+# the flow the February-2000 SRTM surface already holds). The river's own
+# footprint = every cell wet at steady state under the bankfull discharge
+# (median annual maximum) above that baseline; it never counts as flooding.
+BANKFULL_WET_M = 0.05      # steady-state depth that counts as "the river is here"
+STEADY_TOL = 0.02          # steady state: outflow within this fraction of inflow
+STEADY_MAX_HOURS = 96.0    # cap on simulated hours for a steady-state run
+SPINUP_Q_STEP_M3S = 5.0    # warm starts are computed and cached at the routed discharge rounded to this
+
 # ---- Decisions ------------------------------------------------------------
 FLOOD_DEPTH_M = 0.30       # depth that counts as "flooded"
 SEVERE_DEPTH_M = 1.00      # depth that counts as "severe"

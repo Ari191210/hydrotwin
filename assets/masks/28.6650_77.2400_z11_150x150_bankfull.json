@@ -1,0 +1,13 @@
+{
+ "q_m3s": 1304.1,
+ "wet_m": 0.05,
+ "state_hash": "a94bed6d25",
+ "cells": 3497,
+ "hours": 18.0,
+ "converged": true,
+ "inflow_m3s": 1304.1,
+ "outflow_m3s": 1287.0392240031963,
+ "stored_m3": 32359201.557236075,
+ "max_depth_m": 5.792429223709715,
+ "seconds": 16.946048259735107
+}

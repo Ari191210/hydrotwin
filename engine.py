@@ -75,7 +75,7 @@ def simulate_location(lat, lon, title=None, pop_density=None,
         water_mask = scen.fetch_water_mask(elevation, cell_size, tries=2)
         # no-op for live locations (no inflow point); kept so engine and
         # run.py share one terrain pipeline
-        elevation, terrain_source, _ = scen.condition_terrain(
+        elevation, terrain_source, channel = scen.condition_terrain(
             elevation, cell_size, terrain_source, water_mask)
 
         say("placing points of interest", 30)
@@ -90,10 +90,19 @@ def simulate_location(lat, lon, title=None, pop_density=None,
         inflow, q_in, river_label = scen.river_inflow(elevation, cell_size,
                                                       discharge)
 
+        # bankfull footprint + warm start: both None for live locations
+        # (no inflow point -> inflow and channel are None); kept so engine
+        # and run.py share one pipeline
+        footprint = scen.river_footprint(elevation, cell_size, inflow,
+                                         discharge, channel)
+        initial = scen.river_warm_start(elevation, cell_size, inflow, q_in,
+                                        channel)
         # river channel + inflow cells: rendered, never counted as flooding
-        exclude = scen.exclude_mask(water_mask, elevation.shape, inflow, q_in)
+        exclude = scen.exclude_mask(water_mask, elevation.shape, inflow, q_in,
+                                    footprint)
         scenarios = scen.run_all(scen.plan(rain), elevation, cell_size,
-                                 inflow, q_in, say=say, exclude=exclude)
+                                 inflow, q_in, say=say, exclude=exclude,
+                                 initial=initial)
 
         say("rendering 3D scene", 92)
         issued_at = datetime.now(timezone.utc).isoformat()

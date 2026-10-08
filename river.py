@@ -7,8 +7,10 @@ lowest DEM cell on that edge) and turns a discharge in m3/s into a per-cell
 source term for OverlandFlow.
 
 SRTM was flown in February 2000, so the DEM already holds the river at its
-dry-season surface. Only discharge ABOVE the seasonal median is routed in;
-on a normal day that is ~0 and the river adds nothing.
+dry-season surface. Only discharge ABOVE that dry-season baseline (the
+February median of the GloFAS history) is routed in. What the river
+occupies at an ordinary annual high flow is its own footprint, not flooding
+(riverstate.bankfull_footprint).
 """
 
 import heapq
@@ -327,19 +329,32 @@ def condition_channel(elevation, cell_size, water_mask=None, point=None,
 
 
 def excess_from_glofas(discharge):
-    """Discharge above the seasonal median over the next two forecast days,
-    in m3/s, plus a source label. 0 when the river is at or below normal."""
+    """Discharge to route, in m3/s, plus a source label: the highest GloFAS
+    forecast of the next two days ABOVE THE DEM BASELINE (q_dem_baseline,
+    the February median; see flooddata.river_stats). 0 when the river is at
+    or below its dry-season flow.
+
+    If the GloFAS history (and so the baseline) is unavailable, falls back
+    to the old rule, discharge above the seasonal median for the date, and
+    the label says so."""
     if not discharge:
         return 0.0, "no river discharge data"
     days = range(min(2, len(discharge["discharge"])))
-    d = max(days, key=lambda i: discharge["discharge"][i]
-            - discharge["median"][i])
-    q, med = discharge["discharge"][d], discharge["median"][d]
-    best = q - med
     tag = "live" if discharge.get("live") else \
         f"cached {discharge['fetched_at'][:10]}"
-    return max(best, 0.0), (f"GloFAS {tag}: {q:.0f} m3/s, {max(best, 0):.0f} "
-                            f"above the {med:.0f} m3/s seasonal median")
+    base = discharge.get("q_dem_baseline")
+    if base is None:
+        d = max(days, key=lambda i: discharge["discharge"][i]
+                - discharge["median"][i])
+        q, med = discharge["discharge"][d], discharge["median"][d]
+        best = max(q - med, 0.0)
+        return best, (f"GloFAS {tag}: {q:.0f} m3/s, {best:.0f} above the "
+                      f"{med:.0f} m3/s seasonal median (no dry-season "
+                      f"baseline available)")
+    q = max(discharge["discharge"][i] for i in days)
+    best = max(q - base, 0.0)
+    return best, (f"GloFAS {tag}: {q:.0f} m3/s, {best:.0f} above the "
+                  f"{base:.0f} m3/s dry-season (DEM) baseline")
 
 
 def water_mask(elevation, cell_size, pad_m=0.0):

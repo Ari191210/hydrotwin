@@ -13,6 +13,7 @@ import config
 import decide
 import rainfall
 import river
+import riverstate
 import simulate
 import terrain
 
@@ -109,21 +110,69 @@ def condition_terrain(elevation, cell_size, terrain_source, water_mask=None):
     return conditioned, terrain_source + CONDITIONED_TAG, diag
 
 
-def exclude_mask(water_mask, shape, inflow=None, q_m3s=0.0):
+def river_footprint(elevation, cell_size, inflow, discharge, channel):
+    """Bool grid of the cells the river occupies at bankfull discharge
+    (riverstate.bankfull_footprint), or None.
+
+    channel: the diagnostics condition_terrain returned. None (no inflow
+    point, config.CHANNEL_CONDITIONING off, or no thalweg found) makes this
+    a no-op: on the raw DEM the channel ponds behind its sills, so a
+    "steady bankfull" state there is that artefact, not the river.
+    Computed once per preset and cached; a build with no GloFAS history
+    reachable reuses the cached footprint.
+    """
+    if inflow is None or channel is None:
+        return None
+    q = None
+    if discharge and discharge.get("q_bankfull") is not None:
+        q = discharge["q_bankfull"] - discharge["q_dem_baseline"]
+    mask, info = riverstate.bankfull_footprint(elevation, cell_size, inflow,
+                                               q)
+    if mask is None:
+        print("[scenarios] !!! NO BANKFULL FOOTPRINT (no GloFAS history and "
+              "none cached): water in the river's own bed outside the OSM "
+              "mask WILL COUNT AS FLOODED !!!")
+    elif not info["converged"]:
+        print(f"[scenarios] !!! bankfull footprint is from a run that had "
+              f"NOT reached steady state after {info['hours']:.0f} h "
+              f"(outflow {info['outflow_m3s']:.0f} of "
+              f"{info['inflow_m3s']:.0f} m3/s) !!!")
+    return mask
+
+
+def river_warm_start(elevation, cell_size, inflow, q_m3s, channel):
+    """Steady river state at the routed discharge (riverstate.warm_start),
+    used as the initial condition of every scenario so the simulated window
+    starts with the river already flowing. None when no river is routed, or
+    when the channel is not conditioned (same reason as river_footprint)."""
+    if inflow is None or channel is None or not q_m3s:
+        return None
+    return riverstate.warm_start(elevation, cell_size, inflow, q_m3s)
+
+
+def exclude_mask(water_mask, shape, inflow=None, q_m3s=0.0, footprint=None):
     """Bool grid (row 0 = south) of cells that never count as flooding:
-    permanent water plus, while the river is being routed in, the cells the
-    inflow is injected into."""
+    permanent water, the river's bankfull footprint (river_footprint) and,
+    while the river is being routed in, the cells the inflow is injected
+    into."""
     ex = (np.zeros(shape, bool) if water_mask is None
           else np.array(water_mask, dtype=bool))
     if inflow and q_m3s:
         ex.flat[inflow["nodes"]] = True       # node id = row * cols + col
+    if footprint is not None:
+        ex |= footprint
     return ex
 
 
 def run_all(specs, elevation, cell_size, inflow=None, q_m3s=0.0, say=None,
-            exclude=None):
+            exclude=None, initial=None):
     """Run physics + decisions for every spec; returns viewer scenarios.
-    exclude: exclude_mask() grid, kept out of every decision figure."""
+    exclude: exclude_mask() grid, kept out of every decision figure.
+    initial: river_warm_start() state every scenario starts from, or None
+    for a dry start."""
+    start = {} if initial is None else {
+        "initial_depth": initial["depth"],
+        "initial_discharge": initial["link_q"]}
     out = []
     for i, s in enumerate(specs):
         if say:
@@ -132,12 +181,14 @@ def run_all(specs, elevation, cell_size, inflow=None, q_m3s=0.0, say=None,
         print(f"[scenario] {s['label']}: {s['rain_source']} "
               f"(total {sum(s['rain_series']):.0f} mm"
               f"{', river +%.0f m3/s' % q_m3s if inflow and q_m3s else ''}"
+              f"{', warm start' if initial is not None else ''}"
               f"{' - default' if s['is_default'] else ''})")
         series = s["rain_series"]
         times, depths = simulate.run_simulation(
             elevation, cell_size,
             lambda t, sr=series: sr[min(int(t // 3600), len(sr) - 1)],
-            inflow=inflow, inflow_m3s_at=(lambda t: q_m3s) if q_m3s else None)
+            inflow=inflow, inflow_m3s_at=(lambda t: q_m3s) if q_m3s else None,
+            **start)
         decisions, source = decide.get_decisions(
             depths, times, allow_claude=s["is_default"],
             quiet=not s["is_default"], exclude=exclude)

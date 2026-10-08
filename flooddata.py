@@ -43,6 +43,9 @@ def get_river_discharge():
     cached = _cache_get()
     if cached is not None:
         cached["live"] = False
+        if "q_bankfull" not in cached:
+            # cached before the river statistics existed
+            cached.update(_stats_near(config.BASIN_LAT, config.BASIN_LON))
         print(f"[flooddata] GloFAS offline -> cached data from "
               f"{cached['fetched_at'][:10]}")
         return cached
@@ -93,7 +96,12 @@ def _fetch_live(lat=None, lon=None):
                   "without a 'vs normal' comparison")
             median = [0.0] * len(discharge)
         med = median[0]
+        stats = river_stats(best["latitude"], best["longitude"]) or {}
         return {
+            # the GloFAS cell and its river statistics (see river_stats);
+            # the statistics are absent if the history could not be fetched
+            "cell": [best["latitude"], best["longitude"]],
+            **stats,
             "days": daily["time"],
             "discharge": [round(v, 1) for v in discharge],
             "median": [round(v, 1) for v in median],
@@ -111,43 +119,107 @@ def seasonal_median(lat, lon, days):
     """Median historical discharge (CLIM_YEARS) within +/-CLIM_HALF_WINDOW_D
     calendar days of each ISO date in `days`, at the GloFAS cell nearest
     lat/lon. None if the history can't be fetched or cached."""
+    clim = _clim_entry(lat, lon)
+    if clim is None:
+        return None
+    return [clim["doy"][_doy(t)] for t in days]
+
+
+def river_stats(lat, lon):
+    """{"q_dem_baseline", "q_bankfull"} in m3/s for the GloFAS cell nearest
+    lat/lon, or None when the history is unavailable.
+
+    q_dem_baseline: climatological median for February (mean of the February
+        day-of-year medians). SRTM was flown in February 2000, so this is
+        the flow the DEM's river surface already holds.
+    q_bankfull: median of the annual maxima over CLIM_YEARS (the ~2-year
+        flood, the standard proxy for bankfull discharge).
+    """
+    clim = _clim_entry(lat, lon)
+    if clim is None or "q_bankfull" not in clim:
+        return None
+    return {"q_dem_baseline": clim["q_dem_baseline"],
+            "q_bankfull": clim["q_bankfull"]}
+
+
+def _clim_entry(lat, lon):
+    """Cached climatology entry for a GloFAS cell:
+    {"doy": [366 medians], "q_dem_baseline": .., "q_bankfull": ..}.
+    Entries written before the river statistics existed are a bare list of
+    366 medians: that is a cache miss, refetched once and upgraded in place.
+    If the refetch fails the old medians still serve the 'vs normal' panel
+    (without the statistics)."""
     key = f"{lat:.3f},{lon:.3f}"
     clim = _clim_load().get(key)
-    if clim is None:
-        try:
-            import requests
+    if isinstance(clim, dict) and "q_bankfull" in clim:
+        return clim
+    legacy = {"doy": clim} if isinstance(clim, list) else None
+    try:
+        import requests
 
-            r = requests.get(
-                "https://flood-api.open-meteo.com/v1/flood",
-                params={"latitude": f"{lat:.4f}", "longitude": f"{lon:.4f}",
-                        "daily": "river_discharge",
-                        "start_date": f"{CLIM_YEARS[0]}-01-01",
-                        "end_date": f"{CLIM_YEARS[1]}-12-31"},
-                timeout=(5, 40))
-            r.raise_for_status()
-            d = r.json()["daily"]
-            by_doy = [[] for _ in range(366)]
-            for t, v in zip(d["time"], d["river_discharge"]):
-                if v is not None:
-                    by_doy[_doy(t)].append(float(v))
-            clim = []
-            for doy in range(366):
-                window = [v for k in range(-CLIM_HALF_WINDOW_D,
-                                           CLIM_HALF_WINDOW_D + 1)
-                          for v in by_doy[(doy + k) % 366]]
-                clim.append(round(float(_median(window)), 1)
-                            if window else 0.0)
-            store = _clim_load()
-            store[key] = clim
-            with open(CLIM_PATH, "w", encoding="utf-8") as f:
-                json.dump(store, f)
-            print(f"[flooddata] built {CLIM_YEARS[0]}-{CLIM_YEARS[1]} "
-                  f"seasonal climatology for GloFAS cell {key}")
-        except Exception as exc:
-            print(f"[flooddata] climatology fetch failed "
-                  f"({type(exc).__name__}: {exc})")
-            return None
-    return [clim[_doy(t)] for t in days]
+        r = requests.get(
+            "https://flood-api.open-meteo.com/v1/flood",
+            params={"latitude": f"{lat:.4f}", "longitude": f"{lon:.4f}",
+                    "daily": "river_discharge",
+                    "start_date": f"{CLIM_YEARS[0]}-01-01",
+                    "end_date": f"{CLIM_YEARS[1]}-12-31"},
+            timeout=(5, 40))
+        r.raise_for_status()
+        d = r.json()["daily"]
+        by_doy = [[] for _ in range(366)]
+        year_max = {}
+        for t, v in zip(d["time"], d["river_discharge"]):
+            if v is not None:
+                by_doy[_doy(t)].append(float(v))
+                year_max[t[:4]] = max(year_max.get(t[:4], 0.0), float(v))
+        doy_med = []
+        for doy in range(366):
+            window = [v for k in range(-CLIM_HALF_WINDOW_D,
+                                       CLIM_HALF_WINDOW_D + 1)
+                      for v in by_doy[(doy + k) % 366]]
+            doy_med.append(round(float(_median(window)), 1)
+                           if window else 0.0)
+        feb = doy_med[31:60]              # 1-29 Feb on the 366-day calendar
+        clim = {"doy": doy_med,
+                "q_dem_baseline": round(sum(feb) / len(feb), 1),
+                "q_bankfull": round(float(_median(list(year_max.values()))),
+                                    1),
+                "n_years": len(year_max)}
+        store = _clim_load()
+        store[key] = clim
+        with open(CLIM_PATH, "w", encoding="utf-8") as f:
+            json.dump(store, f)
+        print(f"[flooddata] built {CLIM_YEARS[0]}-{CLIM_YEARS[1]} "
+              f"climatology for GloFAS cell {key}: dry-season (February) "
+              f"baseline {clim['q_dem_baseline']:.0f} m3/s, bankfull (median "
+              f"of {len(year_max)} annual maxima) {clim['q_bankfull']:.0f} "
+              f"m3/s")
+        return clim
+    except Exception as exc:
+        print(f"[flooddata] climatology fetch failed "
+              f"({type(exc).__name__}: {exc})")
+        return legacy
+
+
+def _stats_near(lat, lon):
+    """River statistics from the cached climatology cells within the 3x3
+    sampling neighbourhood of _fetch_live around lat/lon, keeping the cell
+    with the largest bankfull discharge (the river). {} if none."""
+    best = {}
+    for key in list(_clim_load()):
+        try:
+            la, lo = (float(v) for v in key.split(","))
+        except ValueError:
+            continue
+        if abs(la - lat) > 0.11 or abs(lo - lon) > 0.11:
+            continue
+        clim = _clim_entry(la, lo)
+        if isinstance(clim, dict) and "q_bankfull" in clim and \
+                clim["q_bankfull"] > best.get("q_bankfull", -1.0):
+            best = {"cell": [la, lo],
+                    "q_dem_baseline": clim["q_dem_baseline"],
+                    "q_bankfull": clim["q_bankfull"]}
+    return best
 
 
 def _doy(iso):
