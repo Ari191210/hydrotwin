@@ -575,7 +575,7 @@ __FONTS_CSS__
   #mlbody input[type=range] { width: 100%; margin-top: 3px;
     accent-color: var(--yellow); }
   #mlStats { margin-top: 8px; flex-direction: column; gap: 2px; }
-  #mlStats .src em { width: 92px; }
+  #mlStats .src em { width: 112px; }
   #mlNote { display: block; color: var(--dimmer); font-size: 9.5px;
     line-height: 1.4; margin-top: 6px; white-space: normal;
     overflow-wrap: anywhere; }
@@ -687,10 +687,10 @@ __FONTS_CSS__
   <div id="mlpanel" style="display:none">
     <div class="vh">ML instant preview <button id="mlToggle">OFF</button></div>
     <div id="mlbody" style="display:none">
-      <label>Rain total <b id="mlRainLab"></b>
-        <input type="range" id="mlRain" min="0" max="100" value="25"></label>
-      <label>River excess <b id="mlRiverLab"></b>
-        <input type="range" id="mlRiver" min="0" max="100" value="25"></label>
+      <label>Rain total over 6 h <b id="mlRainLab"></b>
+        <input type="range" id="mlRain" min="0" max="384" step="4" value="0"></label>
+      <label>River flow above dry-season baseline <b id="mlRiverLab"></b>
+        <input type="range" id="mlRiver" min="0" max="5000" step="25" value="275"></label>
       <div id="mlStats" class="src"></div>
       <div id="mlNote" class="src"></div>
     </div>
@@ -1442,7 +1442,7 @@ if (P.discharge) {
   var chip = document.getElementById("riverchip");
   var pct = D.pct_of_median;
   chip.textContent = (pct >= 0 ? "+" : "") + pct.toFixed(0) +
-    "% vs 1995–2024 normal for this date";
+    "% vs 1997–2024 normal for this date";
   chip.className = Math.abs(pct) > 15 ? "abnormal" : "normal";
   var barsEl = document.getElementById("riverbars");
   var dmax = Math.max.apply(null, D.discharge.concat([1]));
@@ -1451,7 +1451,7 @@ if (P.discharge) {
     b.style.height = Math.max(v / dmax * 100, 8) + "%";
     if (i === 0) b.className = "today";
     b.title = D.days[i] + ": " + Math.round(v).toLocaleString("en") +
-      " m³/s (1995–2024 median " + Math.round(D.median[i]).toLocaleString("en") + ")";
+      " m³/s (1997–2024 median " + Math.round(D.median[i]).toLocaleString("en") + ")";
     b.innerHTML = "<i>" + D.days[i].slice(8) + "</i>";
     barsEl.appendChild(b);
   });
@@ -1477,50 +1477,84 @@ P.scenarios.forEach(function (sc, i) {
 });
 bootSay(P.scenarios.length + " storm scenarios hydrated");
 
-// ---- ML instant preview: a per-pixel cubic polynomial fit to 380 of this
-// project's own Landlab physics runs (held-out RMSE/IoU in P.surrogate.
-// metrics). It replaces nothing — it's an isolated extra panel so a bad
-// slider value can never corrupt the validated scenario/physics state.
-var mlActive = false, mlCoef = null;
+// ---- ML instant preview: a statistical stand-in for this project's own
+// Landlab physics, fitted and exported by surrogate_baselines.py (held-out
+// scores in P.surrogate.metrics). Peak depth is interpolated between the
+// training runs: piecewise-linear in river flow (S.knots_q) x piecewise-
+// linear in rain (S.knots_r), with the per-cell coefficients factored
+// through S.k spatial modes. It replaces nothing — it's an isolated extra
+// panel so a bad slider value can never corrupt the scenario/physics state.
+var mlActive = false, mlModes = null;
 if (P.surrogate) {
   var S = P.surrogate;
-  mlCoef = new Float32Array(b64Bytes(S.coefB64).buffer);  // (10, N)
+  var mlA = new Float32Array(b64Bytes(S.aB64).buffer);        // (features, k)
+  mlModes = new Float32Array(b64Bytes(S.modesB64).buffer);    // (k, N) north-first
   document.getElementById("mlpanel").style.display = "";
   var mlRain = document.getElementById("mlRain");
   var mlRiver = document.getElementById("mlRiver");
   var mlRainLab = document.getElementById("mlRainLab");
   var mlRiverLab = document.getElementById("mlRiverLab");
+  // sliders in physical units, confined to the trained range; the default
+  // is a normal day
+  mlRain.min = 0; mlRain.max = S.rain_mult_max * S.rain_mm_per_unit;
+  mlRain.step = 4; mlRain.value = S.default_rain_mm;
+  mlRiver.min = 0; mlRiver.max = S.river_qmax;
+  mlRiver.step = 25; mlRiver.value = S.default_river_q;
+  var mlM = S.metrics;
   document.getElementById("mlNote").textContent =
-    "Fit to " + S.metrics.method + ". Held-out accuracy: RMSE " +
-    S.metrics.rmse_m.toFixed(2) + " m, wet-area IoU " +
-    S.metrics.iou.toFixed(2) + ". Not the validated physics result " +
-    "shown elsewhere in this viewer — an instant approximation of it.";
+    "A statistical shortcut, not a new simulation: per cell it " +
+    "interpolates peak depth between " + mlM.n_train + " runs of this " +
+    "page's physics model (rain × river flow). On " + mlM.n_val +
+    " further runs it never saw, its flooded cells outside the river " +
+    "overlap the physics by " + Math.round(mlM.iou * 100) + "% (IoU); " +
+    "depth error on them about " + mlM.rmse_wet_m.toFixed(2) + " m. Area " +
+    "counts cells flooded at any time in the 6 h. It only approximates " +
+    "the physics shown elsewhere on this page.";
 
+  // interval j and weight t of x in a knot list (clamped to its range):
+  // value = (1 - t) * knot j + t * knot j+1
+  function mlHat(x, knots) {
+    var n = knots.length;
+    x = Math.min(Math.max(x, knots[0]), knots[n - 1]);
+    var j = 0;
+    while (j < n - 2 && x >= knots[j + 1]) j++;
+    return [j, (x - knots[j]) / (knots[j + 1] - knots[j])];
+  }
+
+  // the (at most four) non-zero features of (r, q): [index, value] pairs,
+  // index = q knot * (number of r knots) + r knot
   function mlFeat(r, q) {
-    return [1, r, q, r * r, q * q, r * q, r ** 3, q ** 3, r * r * q, r * q * q];
+    var hq = mlHat(q, S.knots_q), hr = mlHat(r, S.knots_r);
+    var m = S.knots_r.length, jq = hq[0], tq = hq[1], jr = hr[0], tr = hr[1];
+    return [[jq * m + jr, (1 - tq) * (1 - tr)],
+            [jq * m + jr + 1, (1 - tq) * tr],
+            [(jq + 1) * m + jr, tq * (1 - tr)],
+            [(jq + 1) * m + jr + 1, tq * tr]];
   }
 
   function computeML() {
-    var rainFrac = +mlRain.value / 100, riverFrac = +mlRiver.value / 100;
-    var rainMm = rainFrac * S.rain_max * 96;  // rain_max=4 units * 96mm/unit
-    var riverQ = riverFrac * S.river_qmax;
+    var rainMm = +mlRain.value, riverQ = +mlRiver.value;
     mlRainLab.textContent = Math.round(rainMm) + " mm";
     mlRiverLab.textContent = Math.round(riverQ) + " m³/s";
-    var r = rainFrac * S.rain_max, q = riverQ / S.q_scale;
-    var f = mlFeat(r, q), depth = new Float32Array(N);
+    var f = mlFeat(rainMm / S.rain_mm_per_unit, riverQ);
+    var K = S.k, w = new Float64Array(K), depth = new Float32Array(N);
+    for (var a = 0; a < f.length; a++)
+      for (var k = 0; k < K; k++) w[k] += f[a][1] * mlA[f[a][0] * K + k];
+    for (var k2 = 0; k2 < K; k2++) {
+      var wk = w[k2], off = k2 * N;
+      for (var c = 0; c < N; c++) depth[c] += wk * mlModes[off + c];
+    }
     var maxD = 0, wetCells = 0;
     for (var i = 0; i < N; i++) {
-      var v = 0;
-      for (var k = 0; k < 10; k++) v += f[k] * mlCoef[k * N + i];
-      if (v < 0) v = 0;
-      depth[i] = v;
-      if (WMASK[i]) continue;             // drawn, not counted
+      var v = depth[i];
+      if (v < 0) { v = 0; depth[i] = 0; }
+      if (WMASK[i]) continue;             // river + its footprint: drawn, not counted
       if (v > maxD) maxD = v;
       if (v >= P.floodDepthM) wetCells++;
     }
     document.getElementById("mlStats").innerHTML =
       "<div class='src'><em>peak depth</em><b>" + maxD.toFixed(2) +
-      " m</b></div><div class='src'><em>flooded area</em><b>" +
+      " m</b></div><div class='src'><em>flooded in 6 h</em><b>" +
       (wetCells * P.cellSize * P.cellSize / 1e6).toFixed(2) +
       " km²</b></div>";
     return depth;
