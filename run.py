@@ -14,6 +14,8 @@ import os
 import sys
 import time
 
+import numpy as np
+
 import config
 
 
@@ -125,6 +127,11 @@ def run_case(name):
         "n_zones": len(decisions.get("evacuation_zones", [])),
         "alert": decisions.get("public_alert", ""),
         "elevation": elevation, "cell_size": cell_size, "peak_grid": peak,
+        "imagery": sat,
+        "calm": not any(z["priority"] in ("immediate", "high")
+                        for z in decisions.get("evacuation_zones", [])),
+        "replay_grid": next((np.maximum.reduce(s["depths"])
+                             for s in scenarios if s.get("replay")), None),
         "outputs": {"3D viewer": viewer_path, "2D map": map_path,
                     "GIF": gif_path, "MP4": mp4_path,
                     "decisions": decisions_path},

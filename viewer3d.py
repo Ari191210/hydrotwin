@@ -395,6 +395,13 @@ __FONTS_CSS__
   #rainaxis span.now { color: var(--accent); }
   #rainrow div.past { background: rgba(69,207,233,.3); }
   #hydroq { color: var(--orange); text-transform: none; }
+  #alertCta { display: block; width: 100%; margin-top: 10px;
+    padding: 8px 10px; border-radius: 7px; cursor: pointer;
+    border: 1px solid var(--accent); background: rgba(69,207,233,.10);
+    color: var(--accent); font-family: var(--fm); font-size: 10.5px;
+    font-weight: 600; letter-spacing: .8px; text-align: left; }
+  #alertCta:hover { background: rgba(69,207,233,.2); }
+  #alertCta[hidden] { display: none; }
   .alert.calm { background: linear-gradient(135deg, rgba(76,217,123,.13),
     rgba(76,217,123,.04)); border-color: rgba(76,217,123,.36); }
   .alert.calm .alert-head { color: var(--safe); }
@@ -667,6 +674,7 @@ __FONTS_CSS__
     <div class="alert-head"><span class="pulse"></span><span
       id="alertHead">FLOOD ALERT</span></div>
     <span id="alertText"></span>
+    <button id="alertCta" hidden></button>
   </div>
   <h2>Live flood state</h2>
   <div id="stats">
@@ -1172,6 +1180,25 @@ function setScenario(i) {
     SC.replay ? SC.replay.alertHead :
     calm ? "NO FLOOD EXPECTED" : "FLOOD ALERT";
   renderHonesty(); renderReplay();
+  // a calm forecast leaves an empty map: offer the labelled scenario that
+  // does show water (the past-flood replay if there is one, else a what-if)
+  var cta = document.getElementById("alertCta"), ctaTo = -1;
+  if (calm && !SC.replay && !SC.whatif) {
+    P.scenarios.forEach(function (s, k) { if (s.replay) ctaTo = k; });
+    if (ctaTo < 0) P.scenarios.forEach(function (s, k) {
+      if (ctaTo < 0 && s.whatif) ctaTo = k; });
+  }
+  cta.hidden = ctaTo < 0;
+  if (ctaTo >= 0) {
+    cta.innerHTML = P.scenarios[ctaTo].replay
+      ? "&#9654;&nbsp; REPLAY THE JULY 2023 FLOOD"
+      : "&#9654;&nbsp; PLAY A WHAT-IF STORM (" +
+        escHtml(P.scenarios[ctaTo].label).toUpperCase() + ")";
+    cta.onclick = function () {
+      setScenario(ctaTo); setFrame(0);
+      if (!playing) togglePlay();
+    };
+  }
   // today's live river reading and the per-pin depth list describe the
   // forecast, not a past event: hidden while a replay is selected
   if (P.discharge) document.getElementById("riversec").style.display =
@@ -1290,7 +1317,7 @@ function updateWater(nowMs) {
       var z = ty + yOf(dm) + .04;
       wpos.setZ(i, shimmerOn ? z + Math.sin(st + i * .53) * .05 : z);
       var t = Math.min(dm / vEff * 1.5, 1);
-      wcol.setXYZ(i, .62 - .55 * t, .83 - .58 * t, 1 - .5 * t);
+      wcol.setXYZ(i, .16 - .14 * t, .60 - .44 * t, 1 - .36 * t);
     } else {
       wWet[i] = 0;
       wpos.setZ(i, ty - 2.5);
@@ -1764,7 +1791,7 @@ if (P.surrogate) {
       if (dm >= .02) {
         wpos.setZ(i, ty + yOf(dm) + .04);
         var t = Math.min(dm / 4 * 1.5, 1);
-        wcol.setXYZ(i, .62 - .55 * t, .83 - .58 * t, 1 - .5 * t);
+        wcol.setXYZ(i, .16 - .14 * t, .60 - .44 * t, 1 - .36 * t);
       } else {
         wpos.setZ(i, ty - 2.5);
         wcol.setXYZ(i, .3, .55, .9);
