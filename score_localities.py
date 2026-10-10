@@ -55,9 +55,30 @@ def score(dem, stage=RECORD_M, quiet=False):
                 tally[key][0 if pred else 1] += 1
             elif label == "dry" and pred:
                 tally[key][2] += 1
+    from scipy.stats import binomtest, fisher_exact
+    n_dry = sum(1 for x in localities.LOCALITIES if x[3] == "dry")
     for key, (h, m, f) in tally.items():
+        # does the method separate flooded from dry places better than
+        # chance? 2x2 table: flagged / not flagged by river / dry
+        p = fisher_exact([[h, m], [f, n_dry - f]])[1]
         res[key] = {"hits": h, "misses": m, "false_alarms": f,
-                    "csi": round(h / (h + m + f), 2) if h + m + f else None}
+                    "csi": round(h / (h + m + f), 2) if h + m + f else None,
+                    "fisher_p": round(float(p), 3)}
+    # model against bathtub on the same localities (exact McNemar):
+    # count the places where exactly one of them is right
+    better = worse = 0
+    for r in res["rows"]:
+        if r["label"] == "drain":
+            continue
+        truth = r["label"] == "river"
+        a, b = r["model"] == truth, r["bathtub"] == truth
+        better += a and not b
+        worse += b and not a
+    res["model_vs_bathtub"] = {
+        "model_right_only": int(better), "bathtub_right_only": int(worse),
+        "mcnemar_p": round(float(binomtest(
+            min(better, worse), better + worse, 0.5).pvalue), 2)
+        if better + worse else None}
     if not quiet:
         print(f"\n== {dem}: {lib.source}")
         print(f"   level {stage} m at the Old Railway Bridge <-> steady "
@@ -74,7 +95,13 @@ def score(dem, stage=RECORD_M, quiet=False):
         for key in ("model", "bathtub"):
             t = res[key]
             print(f"   {key:8s}: hits {t['hits']}/7, false alarms "
-                  f"{t['false_alarms']}/10, CSI {t['csi']}")
+                  f"{t['false_alarms']}/10, CSI {t['csi']}, Fisher exact "
+                  f"p = {t['fisher_p']}")
+        mb = res["model_vs_bathtub"]
+        print(f"   model vs bathtub: model right where bathtub is wrong at "
+              f"{mb['model_right_only']} places, the reverse at "
+              f"{mb['bathtub_right_only']}; exact McNemar p = "
+              f"{mb['mcnemar_p']}")
     return res
 
 

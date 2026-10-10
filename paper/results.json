@@ -201,13 +201,20 @@
     "hits": 5,
     "misses": 2,
     "false_alarms": 2,
-    "csi": 0.56
+    "csi": 0.56,
+    "fisher_p": 0.058
    },
    "bathtub": {
     "hits": 5,
     "misses": 2,
     "false_alarms": 4,
-    "csi": 0.45
+    "csi": 0.45,
+    "fisher_p": 0.335
+   },
+   "model_vs_bathtub": {
+    "model_right_only": 2,
+    "bathtub_right_only": 0,
+    "mcnemar_p": 0.5
    }
   },
   {
@@ -401,13 +408,20 @@
     "hits": 7,
     "misses": 0,
     "false_alarms": 4,
-    "csi": 0.64
+    "csi": 0.64,
+    "fisher_p": 0.035
    },
    "bathtub": {
     "hits": 6,
     "misses": 1,
     "false_alarms": 5,
-    "csi": 0.5
+    "csi": 0.5,
+    "fisher_p": 0.304
+   },
+   "model_vs_bathtub": {
+    "model_right_only": 2,
+    "bathtub_right_only": 0,
+    "mcnemar_p": 0.5
    }
   }
  ]

@@ -17,12 +17,33 @@ repository; the script is named next to it.
 - **What IRIS rejects:** display-only models with no research under
   them. Lead with the question and the data, not the 3D viewer.
 
+### Rules I learned from the IRIS resource pages (2026-10-11)
+
+- **Forms.** Every project needs Forms 1, 1A, 1B and 3, signed by the
+  student, a parent and an adult sponsor **before experimentation
+  begins**. Signing afterwards does not fix it. None were signed for
+  this work. **Ask IRIS today** (the WhatsApp help button on the
+  registration page, or contact@exstemplar.com) whether forms are checked
+  at online submission or only for finalists, and describe the situation
+  honestly. Do not backdate anything.
+- **No interviews or surveys now.** Any study with people needs ethics
+  review (Form 4, IRB) and signed consent before anyone is contacted.
+  An earlier suggestion in this project to interview residents this week
+  was wrong and is withdrawn.
+- **No reconstructed logbook.** A logbook written after the fact is
+  disqualifying. The honest record of this work is the public commit
+  history (timestamped, at github.com/Ari191210/hydrotwin). Say so.
+  Start a bound, ink, page-numbered logbook today for everything from
+  here on.
+- **Voice.** Reviewers look for "language no 15-year-old would write".
+  The prose in this file is notes, not text to paste.
+
 ## What to submit
 
 | Item | Limit | Status |
 |---|---|---|
 | Title, category | | options below |
-| Abstract | about 250 words, hard cap 300 | draft below (289 words; trim towards 250) |
+| Abstract | about 250 words, hard cap 300 | six-part skeleton below, for you to write |
 | Research synopsis (PDF) | 650 to 1,250 words, six sections | draft below |
 | Research paper (PDF) | about 10 to 15 pages | outline + all numbers below |
 | YouTube video | 90 seconds max, unlisted or public | script below |
@@ -47,7 +68,9 @@ Title options:
 3. **Design.** So key the tool to the river level at the Old Railway
    Bridge, and use a 2D flood model to turn a level into a depth map.
 4. **Finding 2.** Tested by rules fixed in advance on 17 localities: the
-   model beats the simplest alternative (CSI 0.56 against 0.45).
+   model's flags line up with what happened (5 of 7 caught, 2 false
+   alarms, p = 0.058). It is not shown to beat the simplest alternative
+   (p = 0.50).
 5. **Finding 3.** Three errors found in my own model along the way, each
    corrected and documented.
 
@@ -57,6 +80,10 @@ Title options:
 
 Peak Hathnikund release and peak level at the Old Railway Bridge.
 Source: SANDRP, 16 July 2023.
+
+**Credit:** SANDRP's article made this point first, in words: a record
+level from a moderate release. What is added here is the number (the
+trend fit and the 2.53 m miss). Cite them and say so.
 
 | Flood | Release (cusecs) | Release (m³/s) | Level (m) |
 |---|---|---|---|
@@ -105,6 +132,24 @@ Rules fixed in `PREREG_LOCALITIES.md` and committed before scoring
 
 CSI = hits / (hits + misses + false alarms).
 
+**Is it better than chance?** (`score_localities.py` prints these.)
+
+| Test | SRTM | What it means |
+|---|---|---|
+| Model: flooded against dry places, Fisher exact | p = 0.058 | Borderline. Just short of the usual 0.05 bar |
+| Bathtub rule, same test | p = 0.335 | Not distinguishable from chance |
+| Model against bathtub, exact McNemar | p = 0.50 | No evidence the model is better |
+
+On FABDEM the same tests give p = 0.035 for the model, p = 0.30 for the
+bathtub rule and p = 0.50 head to head. Do not lead with the 0.035: that
+run needs an implausible river flow (section B).
+
+The model is right where the bathtub rule is wrong at 2 places (Laxmi
+Nagar, Gandhi Nagar) and never the reverse. Two places is not enough to
+claim a difference. The honest sentence is: "the model's flags were
+associated with the 2023 record at p = 0.058; the bathtub rule's were
+not (p = 0.34); a direct comparison of the two is inconclusive."
+
 SRTM, place by place:
 
 | Locality | 2023 | Model | Depth (m) |
@@ -128,8 +173,9 @@ What to say about it:
   67 m grid cannot see. Both risks were written down before scoring.
 - The model keeps Raj Ghat and ITO dry, which is right for a river-only
   model: they flooded through a failed drain gate.
-- The gap between model and bathtub is two localities. Seventeen is a
-  small sample. "No report" is the absence of a report, not proof.
+- Do not say the model "beats" the bathtub rule. See the tests above.
+  Seventeen is a small sample. "No report" is the absence of a report,
+  not proof.
 - Only one flood level has been tested.
 
 ### D. Errors found in my own model (BACKTEST_PREREG.md, commit log)
@@ -151,39 +197,36 @@ What to say about it:
 - `outputs/print/`: three STL files for a 120 mm printed tile of the
   river at Old Delhi, vertical scale exaggerated 25 times.
 
-## Abstract (draft, 289 words: under the 300 cap, trim towards 250)
+## Abstract: six-part skeleton (you write the sentences)
 
-Delhi's flood warnings are triggered by how much water an upstream
-barrage releases. I tested whether that number predicts the flood. In
-official records of nine large Yamuna floods since 1978, a larger
-release went with a higher river level at Delhi across the first eight
-(r = 0.67), but that trend under-predicts the July 2023 record by 2.53 m:
-the highest level on record came from the smallest release. A warning
-keyed to release would have under-called the worst flood.
+IRIS's sample abstracts all do six jobs in about 250 words. Write one
+sentence where it says one. The facts for each part are listed; the
+wording is yours.
 
-I therefore built a tool keyed to the river level at the Old Railway
-Bridge, the figure official forecasts give. A two-dimensional
-shallow-water model (Landlab OverlandFlow) over satellite-derived terrain
-was run to steady state at 17 river flows, giving a library that maps any
-bridge level to a depth map. Before scoring, I fixed in writing the
-method, 17 localities and the pass rule. At the 2023 level the model
-flagged 5 of 7 localities recorded as submerged, with 2 false alarms
-among 10 with no flood report (critical success index 0.56). A simpler
-rule, flooding everything below the water level, scored 0.45. With
-bare-earth terrain the model caught 7 of 7 with 4 false alarms, but only
-at an implausible river flow, so I report it as a caution.
+| Part | Length | Facts to use |
+|---|---|---|
+| 1. Context | 1 sentence | July 2023: Yamuna at 208.66 m at Delhi, the highest on record; about 35,000 people rescued (NIDM 2024) |
+| 2. Gap | 1 sentence | Warning stages are triggered by barrage release (1 lakh and 3 lakh cusecs), and public tools give a river level in metres; neither says which neighbourhoods |
+| 3. Question | 1 sentence | Does release predict the level at Delhi, and can a forecast level be mapped to neighbourhoods in a way that matches the 2023 record? |
+| 4. Method | 2 to 3 sentences | Nine floods 1978 to 2023, straight-line fit to the first eight. 2D shallow-water model (Landlab OverlandFlow), 150 x 150 cells of 67 m, run to steady state at 17 river flows, river only. Test fixed in writing first: 7 localities recorded as submerged, 10 with no flood report, flooded = 0.30 m of water within 250 m; compared with a rule that floods all ground below the water level |
+| 5. Result | 2 to 3 sentences | Trend r = 0.67 predicts 206.13 m for 2023; observed 208.66 m, 2.53 m higher. Model: 5 of 7 caught, 2 of 10 false alarms, CSI 0.56, Fisher exact p = 0.058. Baseline rule: 5 of 7, 4 of 10, p = 0.34. Head to head: inconclusive (p = 0.50). Two misses where the terrain data reads rooftops |
+| 6. Significance | 1 sentence | A level-keyed lookup gives a neighbourhood-level message from the number officials already forecast; tested at one level in one city, not an official warning |
 
-Earlier tests exposed errors in my own model, which I corrected and
-document: the river ponded in the terrain data, rain pooled where real
-drains exist, and a global forecast rated 2023 as an ordinary year. The
-result is a web page that turns one forecast number into a
-neighbourhood-level message in Hindi, and a 3D-printed terrain model for
-explaining it. It has been tested at one flood level in one city and is
-not an official warning.
+Check your draft against IRIS's own list of what to avoid:
+- No grand opening. Start with the number or the place.
+- Numbers in the result, with the statistic. No "significant improvement".
+- Name the baseline.
+- No overclaim. "Borderline on 17 localities" is the right strength.
+- Read it aloud. If it does not sound like you, change it.
+- Optional, if words allow: one clause on errors found and corrected in
+  your own model. It is the strongest thing in the project.
 
-## Synopsis (draft, six sections)
+## Synopsis (notes for six sections)
 
-**Abstract.** Use the abstract above.
+These paragraphs are notes with the right facts and roughly the right
+length. Do not paste them. Rewrite each in your own words.
+
+**Abstract.** Use your abstract.
 
 **Introduction (100 to 150 words).** In July 2023 the Yamuna at Delhi
 reached 208.66 m, the highest level recorded, and about 35,000 people
@@ -232,8 +275,11 @@ false alarms (CSI 0.45). The two misses are where the terrain data reads
 rooftops; the two false alarms are colonies behind embankments narrower
 than a grid cell. On bare-earth terrain the model caught 7 of 7 with 4
 false alarms (CSI 0.64), but needed about 23,000 m³/s to reach the
-level, more than twice the real release. A rain-only control showed that
-earlier apparent hits were rain pooling, and they were withdrawn.
+level, more than twice the real release. The model's flags were associated
+with the record at p = 0.058 (Fisher exact); the bathtub rule's were not
+(p = 0.34); a direct comparison of the two is inconclusive (p = 0.50).
+A rain-only control showed that earlier apparent hits were rain pooling,
+and they were withdrawn.
 
 **Acknowledgement and references (50 to 100 words).** Code was written
 with the help of an AI coding assistant (Claude, Anthropic); I directed
@@ -265,8 +311,9 @@ OpenStreetMap contributors; Landlab (Hobley et al., 2017; Adams et al.,
    embankments; rooftop terrain; labels from reports; the model's level
    scale is unreliable at low levels; not an official warning.
 10. **Next steps.** Radar satellite flood extent as ground truth;
-    embankments from OpenStreetMap; a second flood (2019 or 2025); a
-    conversation with residents or a district office.
+    embankments from OpenStreetMap; a second flood (2019 or 2025);
+    interviews with residents or a district office, only after ethics
+    review and consent forms.
 11. **Acknowledgements, references.**
 
 Figures are in `paper/figures/`. Screenshots: open the pages and capture
@@ -285,19 +332,34 @@ them yourself.
   (Screen-record the doorstep page: drag the slider, tap Yamuna Bazar,
   show the Hindi message.)
 - 0:55 to 1:15. "I wrote down the test before running it. At the 2023
-  level it caught 5 of 7 flooded places with 2 false alarms, better than
-  the simple rule. It misses two, and I can show why." (Figure 3.)
+  level it caught 5 of 7 flooded places with 2 false alarms. That is
+  borderline on 17 places, and I can show why it misses two."
+  (Figure 3.)
 - 1:15 to 1:30. "It is tested at one level in one city. Next is satellite
   data and a second flood." (Show the printed tile if it is ready.)
 
 ## Your to-do list before the 13th
 
+0. **Today:** message IRIS about the forms. Start a bound logbook.
 1. Open `outputs/doorstep.html` and the Delhi page; check them on your
    own screen. Read the Hindi message aloud and fix any wording.
-2. Rewrite the abstract and synopsis in your own words. Check the word
-   counts.
+2. Write the abstract from the skeleton and the synopsis from the notes,
+   in your own words. Read them aloud. Check the word counts.
 3. Write the paper from the outline. Paste in the tables and figures.
 4. Record the video. Upload as unlisted.
 5. Print the tile if there is time (`outputs/print/README.txt`).
 6. Check the IRIS rules on AI assistance and team size.
 7. Submit a day early.
+
+## The six questions judges ask (from the IRIS starter kit)
+
+Practise each answer aloud, under 30 seconds.
+
+| Question | Where you stand | Your answer should include |
+|---|---|---|
+| What was the one thing you changed? | Clear | The river level at the bridge; everything else in the model held fixed |
+| What did you compare against? | Clear | The bathtub rule, and for release, the eight-flood trend |
+| How do you know it is not chance? | Weak | p = 0.058 on 17 places, one flood. Say it is borderline and what would settle it |
+| What went wrong? | Strong | The five errors in section D, and how each was caught |
+| What would you do differently? | Clear | Satellite radar flood extent as ground truth; a second flood; embankments |
+| What is this useful for? | Untested | Who it is for (a district office, a resident), and that nobody has used it yet |
