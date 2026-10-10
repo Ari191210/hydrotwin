@@ -151,6 +151,7 @@ __FONTS_CSS__
     padding: 18px 12px 8px; font-family: var(--fm); font-size: 9.5px;
     letter-spacing: .6px; color: #dbe6f2;
     background: linear-gradient(180deg, transparent, rgba(4,7,12,.85)); }
+  .case.door .body { padding: 20px 24px 18px; }
   .pills { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 9px; }
   .pill { font-family: var(--fm); font-size: 9.5px; letter-spacing: .8px;
     text-transform: uppercase; padding: 3px 9px; border-radius: 20px;
@@ -200,6 +201,17 @@ __FONTS_CSS__
     <span>3D viewer, works offline</span>
   </div>
 __ROWS__
+  <a class="case door" href="doorstep.html">
+    <div class="body">
+      <div class="pills"><span class="pill">New</span></div>
+      <h2>Doorstep forecast: from a river level to your neighbourhood</h2>
+      <p class="alert">Official warnings give one number, the Yamuna's
+        level at the Old Railway Bridge. Set that level and see which
+        Delhi neighbourhoods get water, how deep, with a message in Hindi
+        you can send. Tested against places recorded as flooded in 2023.</p>
+      <span class="open">Open the doorstep forecast &rarr;</span>
+    </div>
+  </a>
   <footer>Depths, areas and volumes are computed by the simulation.
     <b>People-affected figures are estimates</b> from stated per-basin
     population densities. The default view is always today's forecast as

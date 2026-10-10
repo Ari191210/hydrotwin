@@ -164,6 +164,12 @@ def main():
         try:
             import hub
             hub_path = hub.make_hub(results)
+            try:
+                import doorstep
+                doorstep.build()
+            except Exception as exc:
+                print(f"[doorstep] page not built ({type(exc).__name__}: "
+                      f"{exc}) - run stagelib.py build srtm first")
         except Exception as exc:
             print(f"[hub] Landing page failed ({type(exc).__name__}: {exc}) "
                   f"— per-case viewers unaffected")

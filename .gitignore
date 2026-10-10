@@ -23,3 +23,6 @@ assets/dem/
 
 # river spin-up states (regenerated on demand)
 assets/spinup/
+
+# derived from the FABDEM tile (CC BY-NC-SA); rebuilt with stagelib.py
+assets/stagelib_delhi_fabdem.npz
