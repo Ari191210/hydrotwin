@@ -71,7 +71,7 @@ Title options:
    model's flags line up with what happened (5 of 7 caught, 2 false
    alarms, p = 0.058). It is not shown to beat the simplest alternative
    (p = 0.50).
-5. **Finding 3.** Three errors found in my own model along the way, each
+5. **Finding 3.** Five errors found in my own model along the way, each
    corrected and documented.
 
 ## Results (all numbers)
