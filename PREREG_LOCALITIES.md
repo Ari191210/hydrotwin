@@ -39,7 +39,7 @@ the nine-site one in BACKTEST_PREREG.md, with a different method.
 - 3 "drain" localities: recorded as flooded, attributed to drain backflow
   or the drain 12 regulator. Not expected to flood in the model. Reported
   separately and not counted in the scores.
-- 12 "dry" localities: no record of Yamuna flooding found. This is the
+- 10 "dry" localities: no record of Yamuna flooding found. This is the
   absence of a report, not a record of staying dry.
 
 Dropped before scoring because OpenStreetMap could not place them or
@@ -49,9 +49,9 @@ source for its 2023 flooding.
 
 ## Scores (fixed)
 
-On the 19 river + dry localities, for each dataset:
+On the 17 river + dry localities, for each dataset:
 - hits (river localities flooded in the model), of 7
-- false alarms (dry localities flooded in the model), of 12
+- false alarms (dry localities flooded in the model), of 10
 - critical success index = hits / (hits + misses + false alarms)
 
 Baseline to beat, also fixed now: the "bathtub" rule that a locality
@@ -70,4 +70,6 @@ model that cannot beat that rule adds nothing.
 
 ## Change log
 
-(empty)
+- 2026-10-10, before any scoring: dropped Krishna Nagar and Shahdara.
+  Both fall on the last grid column, where the search window is cut off
+  and the open boundary sits. 10 dry localities remain.

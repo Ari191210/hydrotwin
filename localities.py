@@ -30,8 +30,6 @@ LOCALITIES = [
      "NIDM 2024 proceedings (backflow in colonies)"),
     ("Geeta Colony", 28.65109, 77.27500, "dry", "no report found"),
     ("Laxmi Nagar", 28.63060, 77.27752, "dry", "no report found"),
-    ("Krishna Nagar", 28.65781, 77.29012, "dry", "no report found"),
-    ("Shahdara", 28.67343, 77.28989, "dry", "no report found"),
     ("Gandhi Nagar", 28.65879, 77.27159, "dry", "no report found"),
     ("Seelampur", 28.66982, 77.26681, "dry", "no report found"),
     ("Chandni Chowk", 28.65598, 77.23219, "dry", "no report found"),
