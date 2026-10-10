@@ -1,0 +1,414 @@
+{
+ "release_vs_level": {
+  "r_eight": 0.67,
+  "r_all": -0.06,
+  "predicted_2023_m": 206.13,
+  "miss_m": 2.53
+ },
+ "flow_at_record_m3s": {
+  "srtm": 7973,
+  "fabdem": 23174
+ },
+ "scores": [
+  {
+   "dem": "srtm",
+   "source": "AWS Terrain Tiles (SRTM)",
+   "stage_m": 208.66,
+   "discharge_m3s": 7973,
+   "rows": [
+    {
+     "name": "Yamuna Bazar",
+     "label": "river",
+     "source": "NIDM 2024 proceedings",
+     "depth_m": 3.53,
+     "model": true,
+     "lowest_ground_m": 205.8,
+     "bathtub": true
+    },
+    {
+     "name": "Nigam Bodh Ghat",
+     "label": "river",
+     "source": "NIDM 2024 proceedings",
+     "depth_m": 6.07,
+     "model": true,
+     "lowest_ground_m": 203.3,
+     "bathtub": true
+    },
+    {
+     "name": "Vijay Ghat",
+     "label": "river",
+     "source": "NIDM 2024 proceedings",
+     "depth_m": 4.64,
+     "model": true,
+     "lowest_ground_m": 205.9,
+     "bathtub": true
+    },
+    {
+     "name": "Usmanpur",
+     "label": "river",
+     "source": "NIDM 2024 proceedings",
+     "depth_m": 6.28,
+     "model": true,
+     "lowest_ground_m": 203.5,
+     "bathtub": true
+    },
+    {
+     "name": "Majnu ka Tilla",
+     "label": "river",
+     "source": "Times of India",
+     "depth_m": 0.0,
+     "model": false,
+     "lowest_ground_m": 215.3,
+     "bathtub": false
+    },
+    {
+     "name": "Kashmere Gate ISBT",
+     "label": "river",
+     "source": "Times of India",
+     "depth_m": 0.0,
+     "model": false,
+     "lowest_ground_m": 210.3,
+     "bathtub": false
+    },
+    {
+     "name": "Bela Road, Civil Lines",
+     "label": "river",
+     "source": "Sphere India sitrep (Civil Lines)",
+     "depth_m": 4.25,
+     "model": true,
+     "lowest_ground_m": 205.5,
+     "bathtub": true
+    },
+    {
+     "name": "Raj Ghat",
+     "label": "drain",
+     "source": "ThePrint, NDTV (drain 12)",
+     "depth_m": 0.0,
+     "model": false,
+     "lowest_ground_m": 205.7,
+     "bathtub": true
+    },
+    {
+     "name": "ITO",
+     "label": "drain",
+     "source": "NDTV (drain 12 regulator)",
+     "depth_m": 0.0,
+     "model": false,
+     "lowest_ground_m": 208.4,
+     "bathtub": true
+    },
+    {
+     "name": "Hakikat Nagar",
+     "label": "drain",
+     "source": "NIDM 2024 proceedings (backflow in colonies)",
+     "depth_m": 0.0,
+     "model": false,
+     "lowest_ground_m": 211.8,
+     "bathtub": false
+    },
+    {
+     "name": "Geeta Colony",
+     "label": "dry",
+     "source": "no report found",
+     "depth_m": 1.54,
+     "model": true,
+     "lowest_ground_m": 205.8,
+     "bathtub": true
+    },
+    {
+     "name": "Laxmi Nagar",
+     "label": "dry",
+     "source": "no report found",
+     "depth_m": 0.0,
+     "model": false,
+     "lowest_ground_m": 206.3,
+     "bathtub": true
+    },
+    {
+     "name": "Gandhi Nagar",
+     "label": "dry",
+     "source": "no report found",
+     "depth_m": 0.26,
+     "model": false,
+     "lowest_ground_m": 207.1,
+     "bathtub": true
+    },
+    {
+     "name": "Seelampur",
+     "label": "dry",
+     "source": "no report found",
+     "depth_m": 3.55,
+     "model": true,
+     "lowest_ground_m": 206.1,
+     "bathtub": true
+    },
+    {
+     "name": "Chandni Chowk",
+     "label": "dry",
+     "source": "no report found",
+     "depth_m": 0.0,
+     "model": false,
+     "lowest_ground_m": 218.4,
+     "bathtub": false
+    },
+    {
+     "name": "Daryaganj",
+     "label": "dry",
+     "source": "no report found",
+     "depth_m": 0.0,
+     "model": false,
+     "lowest_ground_m": 211.3,
+     "bathtub": false
+    },
+    {
+     "name": "Connaught Place",
+     "label": "dry",
+     "source": "no report found",
+     "depth_m": 0.0,
+     "model": false,
+     "lowest_ground_m": 216.3,
+     "bathtub": false
+    },
+    {
+     "name": "Kamla Nagar",
+     "label": "dry",
+     "source": "no report found",
+     "depth_m": 0.0,
+     "model": false,
+     "lowest_ground_m": 218.9,
+     "bathtub": false
+    },
+    {
+     "name": "DU North Campus",
+     "label": "dry",
+     "source": "no report found",
+     "depth_m": 0.0,
+     "model": false,
+     "lowest_ground_m": 219.9,
+     "bathtub": false
+    },
+    {
+     "name": "Paharganj",
+     "label": "dry",
+     "source": "no report found",
+     "depth_m": 0.0,
+     "model": false,
+     "lowest_ground_m": 217.9,
+     "bathtub": false
+    }
+   ],
+   "model": {
+    "hits": 5,
+    "misses": 2,
+    "false_alarms": 2,
+    "csi": 0.56
+   },
+   "bathtub": {
+    "hits": 5,
+    "misses": 2,
+    "false_alarms": 4,
+    "csi": 0.45
+   }
+  },
+  {
+   "dem": "fabdem",
+   "source": "FABDEM V1-2 (bare earth), sigma 1.2",
+   "stage_m": 208.66,
+   "discharge_m3s": 23174,
+   "rows": [
+    {
+     "name": "Yamuna Bazar",
+     "label": "river",
+     "source": "NIDM 2024 proceedings",
+     "depth_m": 7.39,
+     "model": true,
+     "lowest_ground_m": 201.6,
+     "bathtub": true
+    },
+    {
+     "name": "Nigam Bodh Ghat",
+     "label": "river",
+     "source": "NIDM 2024 proceedings",
+     "depth_m": 7.34,
+     "model": true,
+     "lowest_ground_m": 201.9,
+     "bathtub": true
+    },
+    {
+     "name": "Vijay Ghat",
+     "label": "river",
+     "source": "NIDM 2024 proceedings",
+     "depth_m": 2.62,
+     "model": true,
+     "lowest_ground_m": 205.7,
+     "bathtub": true
+    },
+    {
+     "name": "Usmanpur",
+     "label": "river",
+     "source": "NIDM 2024 proceedings",
+     "depth_m": 6.12,
+     "model": true,
+     "lowest_ground_m": 203.4,
+     "bathtub": true
+    },
+    {
+     "name": "Majnu ka Tilla",
+     "label": "river",
+     "source": "Times of India",
+     "depth_m": 0.94,
+     "model": true,
+     "lowest_ground_m": 211.7,
+     "bathtub": false
+    },
+    {
+     "name": "Kashmere Gate ISBT",
+     "label": "river",
+     "source": "Times of India",
+     "depth_m": 7.44,
+     "model": true,
+     "lowest_ground_m": 206.1,
+     "bathtub": true
+    },
+    {
+     "name": "Bela Road, Civil Lines",
+     "label": "river",
+     "source": "Sphere India sitrep (Civil Lines)",
+     "depth_m": 7.64,
+     "model": true,
+     "lowest_ground_m": 202.4,
+     "bathtub": true
+    },
+    {
+     "name": "Raj Ghat",
+     "label": "drain",
+     "source": "ThePrint, NDTV (drain 12)",
+     "depth_m": 0.85,
+     "model": true,
+     "lowest_ground_m": 206.4,
+     "bathtub": true
+    },
+    {
+     "name": "ITO",
+     "label": "drain",
+     "source": "NDTV (drain 12 regulator)",
+     "depth_m": 0.42,
+     "model": true,
+     "lowest_ground_m": 206.2,
+     "bathtub": true
+    },
+    {
+     "name": "Hakikat Nagar",
+     "label": "drain",
+     "source": "NIDM 2024 proceedings (backflow in colonies)",
+     "depth_m": 0.0,
+     "model": false,
+     "lowest_ground_m": 210.5,
+     "bathtub": false
+    },
+    {
+     "name": "Geeta Colony",
+     "label": "dry",
+     "source": "no report found",
+     "depth_m": 3.05,
+     "model": true,
+     "lowest_ground_m": 204.4,
+     "bathtub": true
+    },
+    {
+     "name": "Laxmi Nagar",
+     "label": "dry",
+     "source": "no report found",
+     "depth_m": 0.05,
+     "model": false,
+     "lowest_ground_m": 205.9,
+     "bathtub": true
+    },
+    {
+     "name": "Gandhi Nagar",
+     "label": "dry",
+     "source": "no report found",
+     "depth_m": 2.77,
+     "model": true,
+     "lowest_ground_m": 204.9,
+     "bathtub": true
+    },
+    {
+     "name": "Seelampur",
+     "label": "dry",
+     "source": "no report found",
+     "depth_m": 3.23,
+     "model": true,
+     "lowest_ground_m": 206.0,
+     "bathtub": true
+    },
+    {
+     "name": "Chandni Chowk",
+     "label": "dry",
+     "source": "no report found",
+     "depth_m": 0.0,
+     "model": false,
+     "lowest_ground_m": 216.0,
+     "bathtub": false
+    },
+    {
+     "name": "Daryaganj",
+     "label": "dry",
+     "source": "no report found",
+     "depth_m": 0.98,
+     "model": true,
+     "lowest_ground_m": 207.3,
+     "bathtub": true
+    },
+    {
+     "name": "Connaught Place",
+     "label": "dry",
+     "source": "no report found",
+     "depth_m": 0.0,
+     "model": false,
+     "lowest_ground_m": 213.3,
+     "bathtub": false
+    },
+    {
+     "name": "Kamla Nagar",
+     "label": "dry",
+     "source": "no report found",
+     "depth_m": 0.0,
+     "model": false,
+     "lowest_ground_m": 216.4,
+     "bathtub": false
+    },
+    {
+     "name": "DU North Campus",
+     "label": "dry",
+     "source": "no report found",
+     "depth_m": 0.0,
+     "model": false,
+     "lowest_ground_m": 215.3,
+     "bathtub": false
+    },
+    {
+     "name": "Paharganj",
+     "label": "dry",
+     "source": "no report found",
+     "depth_m": 0.0,
+     "model": false,
+     "lowest_ground_m": 216.7,
+     "bathtub": false
+    }
+   ],
+   "model": {
+    "hits": 7,
+    "misses": 0,
+    "false_alarms": 4,
+    "csi": 0.64
+   },
+   "bathtub": {
+    "hits": 6,
+    "misses": 1,
+    "false_alarms": 5,
+    "csi": 0.5
+   }
+  }
+ ]
+}
